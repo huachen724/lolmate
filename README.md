@@ -1,0 +1,2 @@
+# lolmate
+ratemyprofessor but ratemylolmate :)
