@@ -1,0 +1,54 @@
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.dashboard h1 {
+  font-size: 24px;
+  margin: 0;
+}
+
+.dashboard-recent-match {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dashboard-recent-match h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.dashboard-match-summary {
+  display: flex;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.dashboard-teammates {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.dashboard-teammate-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+}
+
+.dashboard-teammate-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+}

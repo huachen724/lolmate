@@ -1,0 +1,85 @@
+.landing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 56px;
+  padding-top: 40px;
+  text-align: center;
+}
+
+.landing-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 560px;
+}
+
+.landing-hero h1 {
+  font-size: 36px;
+  margin: 0;
+}
+
+.landing-hero .search-bar-hero {
+  margin-top: 10px;
+  width: 480px;
+}
+
+.landing-hint {
+  margin: 0;
+}
+
+.landing-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  color: var(--text-faint);
+  font-size: 12px;
+  margin: 6px 0;
+}
+
+.landing-divider::before,
+.landing-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.landing-signin {
+  padding: 12px 22px;
+}
+
+.landing-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  width: 100%;
+}
+
+.landing-feature {
+  padding: 20px;
+  text-align: left;
+}
+
+.landing-feature h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.landing-feature p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .landing-hero .search-bar-hero {
+    width: 100%;
+  }
+
+  .landing-features {
+    grid-template-columns: 1fr;
+  }
+}

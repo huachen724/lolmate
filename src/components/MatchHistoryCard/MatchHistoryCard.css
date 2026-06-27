@@ -1,0 +1,83 @@
+.match-history-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px 12px 20px;
+  overflow: hidden;
+}
+
+.match-result-stripe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.match-win .match-result-stripe {
+  background: var(--success);
+}
+
+.match-loss .match-result-stripe {
+  background: var(--danger);
+}
+
+.match-history-main {
+  flex: none;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.match-history-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.match-history-row strong {
+  font-size: 14px;
+}
+
+.match-history-others {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.match-history-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-history-chip-enemy {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+@media (max-width: 720px) {
+  .match-history-card {
+    flex-wrap: wrap;
+  }
+
+  .match-history-others {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}

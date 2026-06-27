@@ -1,0 +1,118 @@
+.live-not-found {
+  padding: 24px;
+  text-align: center;
+}
+
+.live-match {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.live-match-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.live-match-header h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.live-match-disclaimer {
+  margin: -8px 0 0;
+  font-size: 12.5px;
+}
+
+.live-match-teams {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.live-team {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.live-team h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 4px;
+}
+
+.live-team-blue h2 {
+  color: var(--tier-diamond);
+}
+
+.live-team-red h2 {
+  color: var(--danger);
+}
+
+.live-player-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+}
+
+.live-player-row:hover {
+  border-color: var(--accent);
+  background: var(--bg-card-hover);
+}
+
+.live-player-row-hidden {
+  opacity: 0.6;
+}
+
+.live-player-row-hidden:hover {
+  border-color: var(--border);
+  background: var(--bg-card);
+}
+
+.live-player-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.live-player-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.live-player-champs {
+  display: none;
+  flex-direction: column;
+  font-size: 11px;
+  text-align: right;
+}
+
+.live-player-reviews {
+  flex: none;
+}
+
+.live-review-tag {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+
+@media (min-width: 880px) {
+  .live-player-champs {
+    display: flex;
+  }
+}
+
+@media (max-width: 720px) {
+  .live-match-teams {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,91 @@
+.search-bar {
+  position: relative;
+}
+
+.search-bar-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  transition: border-color 0.15s ease;
+}
+
+.search-bar-form:focus-within {
+  border-color: var(--accent);
+}
+
+.search-bar-icon {
+  color: var(--text-faint);
+  flex: none;
+}
+
+.search-bar-form input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  padding: 10px 0;
+  font-size: 14px;
+}
+
+.search-bar-compact {
+  width: 280px;
+}
+
+.search-bar-hero {
+  width: 100%;
+}
+
+.search-bar-hero .search-bar-form {
+  padding: 6px 6px 6px 18px;
+  border-radius: var(--radius-lg);
+}
+
+.search-bar-hero input {
+  font-size: 16px;
+  padding: 14px 0;
+}
+
+.search-bar-submit {
+  flex: none;
+}
+
+.search-bar-recent {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+}
+
+.search-bar-recent-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+}
+
+.search-bar-recent-item {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.search-bar-recent-item:hover {
+  background: var(--bg-card-hover);
+}

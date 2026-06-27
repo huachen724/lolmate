@@ -1,0 +1,279 @@
+import { useEffect, useState } from "react";
+import { REVIEW_CATEGORIES } from "../../types";
+import type { MatchSummary, Review, ReviewScores, RiotId } from "../../types";
+import { MIN_SHARED_GAMES_TO_REVIEW } from "../../lib/constants";
+import { ApiError, fetchAccount, submitReview } from "../../lib/api";
+import { countSharedGames } from "../../lib/reviewStats";
+import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
+import type { RiotSession } from "../../lib/session";
+import { RatingStars } from "../RatingStars/RatingStars";
+import { Spinner } from "../Spinner/Spinner";
+import "./ReviewForm.css";
+
+const BODY_MAX_LENGTH = 600;
+const RIOT_ID_LOOKUP_DEBOUNCE_MS = 500;
+
+interface ReviewFormProps {
+  target: { puuid: string; riotId: RiotId };
+  targetMatches: MatchSummary[];
+  // Whether the current viewer has already reviewed this target — computed
+  // by the caller from a review list already fetched with `isMine` set
+  // (see server.js's rowToReview), rather than re-fetched here.
+  alreadyReviewed: boolean;
+  session: RiotSession | null;
+  onClose: () => void;
+  onSubmit: (review: Review) => void;
+}
+
+const emptyScores: ReviewScores = {
+  mapAwareness: 0,
+  mechanicalSkill: 0,
+  teamwork: 0,
+  communication: 0,
+  sportsmanship: 0,
+};
+
+export function ReviewForm({ target, targetMatches, alreadyReviewed, session, onClose, onSubmit }: ReviewFormProps) {
+  const [scores, setScores] = useState<ReviewScores>(emptyScores);
+  const [body, setBody] = useState("");
+  const [anonymous, setAnonymous] = useState(false);
+  const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" } | { status: "error"; message: string }>(
+    { status: "idle" },
+  );
+
+  // Unverified path: someone who didn't go through Riot Sign On. They still
+  // need to prove (informally — there's no real verification without RSO)
+  // that they've actually played with the target, so we ask for a Riot ID
+  // and resolve it for real via account-v1 (through our backend) purely to
+  // check shared match history. The name shown on the review is the
+  // separate, self-chosen displayName below, which is what makes them
+  // "unverified" rather than just a second verified flow.
+  const [reviewerRiotIdInput, setReviewerRiotIdInput] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [lookupState, setLookupState] = useState<
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "found"; puuid: string }
+    | { status: "not-found" }
+    | { status: "error"; message: string }
+  >({ status: "idle" });
+
+  const reviewerKey = session ? session.puuid : getOrCreateUnverifiedReviewerId();
+
+  useEffect(() => {
+    if (session) return;
+    const trimmed = reviewerRiotIdInput.trim();
+    if (!trimmed.includes("#")) {
+      setLookupState({ status: "idle" });
+      return;
+    }
+    const [gameName, tagLine] = trimmed.split("#");
+    if (!gameName || !tagLine) {
+      setLookupState({ status: "idle" });
+      return;
+    }
+
+    setLookupState({ status: "loading" });
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const account = await fetchAccount(gameName, tagLine);
+        if (!cancelled) setLookupState({ status: "found", puuid: account.puuid });
+      } catch (error) {
+        if (cancelled) return;
+        // Only a real 404 means "no such Riot ID" — a rate limit or other
+        // failure is a different problem and shouldn't be reported as if
+        // the Riot ID doesn't exist.
+        if (error instanceof ApiError && error.status === 404) {
+          setLookupState({ status: "not-found" });
+        } else {
+          setLookupState({
+            status: "error",
+            message: error instanceof Error ? error.message : "Lookup failed.",
+          });
+        }
+      }
+    }, RIOT_ID_LOOKUP_DEBOUNCE_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [session, reviewerRiotIdInput]);
+
+  const reviewerPuuid = session ? session.puuid : lookupState.status === "found" ? lookupState.puuid : null;
+  const sharedGames = reviewerPuuid ? countSharedGames(targetMatches, target.puuid, reviewerPuuid) : 0;
+
+  const isEligible = sharedGames >= MIN_SHARED_GAMES_TO_REVIEW;
+  const allScored = REVIEW_CATEGORIES.every((c) => scores[c.key] > 0);
+  const canSubmit =
+    !alreadyReviewed &&
+    isEligible &&
+    allScored &&
+    body.trim().length >= 10 &&
+    submitState.status !== "submitting" &&
+    (session ? true : displayName.trim().length >= 2 && reviewerPuuid !== null);
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!canSubmit) return;
+
+    setSubmitState({ status: "submitting" });
+    try {
+      const review = await submitReview({
+        id: `rev-${crypto.randomUUID()}`,
+        targetPuuid: target.puuid,
+        reviewerKey,
+        reviewerKind: session ? "verified" : "unverified",
+        reviewerGameName: session?.riotId.gameName,
+        reviewerTagLine: session?.riotId.tagLine,
+        reviewerAnonymous: session ? anonymous : undefined,
+        reviewerDisplayName: session ? undefined : displayName.trim(),
+        scores,
+        body: body.trim(),
+        sharedGamesWithTarget: sharedGames,
+      });
+      onSubmit(review);
+    } catch (error) {
+      setSubmitState({
+        status: "error",
+        message:
+          error instanceof ApiError && error.status === 409
+            ? "You've already reviewed this player."
+            : error instanceof Error
+              ? error.message
+              : "Something went wrong submitting your review.",
+      });
+    }
+  }
+
+  return (
+    <div className="review-form-overlay" onClick={onClose}>
+      <div className="review-form card" onClick={(e) => e.stopPropagation()}>
+        <header className="review-form-header">
+          <h2>
+            Review {target.riotId.gameName}
+            <span className="faint">#{target.riotId.tagLine}</span>
+          </h2>
+          <button className="btn btn-ghost review-form-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </header>
+
+        {alreadyReviewed ? (
+          <p className="review-form-blocked">
+            You've already reviewed this player from this browser. Multiple reviews of the same
+            player from one reviewer aren't allowed.
+          </p>
+        ) : (
+          <form onSubmit={handleSubmit} className="review-form-body">
+            {session ? (
+              <div className="review-form-identity">
+                <span className="tag">Posting as {session.riotId.gameName}#{session.riotId.tagLine}</span>
+                <label className="review-form-checkbox">
+                  <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
+                  Post anonymously
+                </label>
+              </div>
+            ) : (
+              <div className="review-form-identity review-form-identity-unverified">
+                <label className="review-form-field">
+                  Your Riot ID (verifies you've played together — not shown publicly)
+                  <input
+                    value={reviewerRiotIdInput}
+                    onChange={(e) => setReviewerRiotIdInput(e.target.value)}
+                    placeholder="YourName#TAG"
+                  />
+                  {lookupState.status === "loading" && (
+                    <span className="faint review-form-lookup-status">
+                      <Spinner size={12} /> Looking up…
+                    </span>
+                  )}
+                  {lookupState.status === "not-found" && (
+                    <span className="review-form-lookup-status review-form-lookup-error">Riot ID not found</span>
+                  )}
+                  {lookupState.status === "error" && (
+                    <span className="review-form-lookup-status review-form-lookup-error">{lookupState.message}</span>
+                  )}
+                </label>
+                <label className="review-form-field">
+                  Display name (shown on your review)
+                  <input
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="e.g. TopLaner22"
+                    maxLength={24}
+                  />
+                </label>
+                <p className="faint review-form-hint">
+                  We'll remember this browser so you can't submit more than one review for the
+                  same player. Sign in with Riot Games instead to post as a verified account.
+                </p>
+              </div>
+            )}
+
+            <div className="review-form-eligibility" data-eligible={isEligible}>
+              {isEligible
+                ? `✓ ${sharedGames} shared games with ${target.riotId.gameName} — eligible to review.`
+                : `Need ${MIN_SHARED_GAMES_TO_REVIEW} shared games to review this player (found ${sharedGames} in their last ${targetMatches.length} matches).`}
+            </div>
+
+            <div className="review-form-scores">
+              {REVIEW_CATEGORIES.map((category) => (
+                <div className="review-form-score-row" key={category.key}>
+                  <div>
+                    <div className="review-form-score-label">{category.label}</div>
+                    <div className="faint review-form-score-hint">{category.hint}</div>
+                  </div>
+                  <RatingStars
+                    value={scores[category.key]}
+                    onChange={(v) => setScores((s) => ({ ...s, [category.key]: v }))}
+                    label={category.label}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <label className="review-form-field">
+              Your review
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value.slice(0, BODY_MAX_LENGTH))}
+                placeholder="What was it like playing with this person?"
+                rows={4}
+              />
+              <span className="faint review-form-counter">
+                {body.length}/{BODY_MAX_LENGTH}
+              </span>
+            </label>
+
+            {submitState.status === "error" && <p className="review-form-submit-error">{submitState.message}</p>}
+
+            <div className="review-form-actions">
+              <button type="button" className="btn btn-ghost" onClick={onClose}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
+                {submitState.status === "submitting" ? (
+                  <>
+                    <Spinner size={14} /> Submitting…
+                  </>
+                ) : (
+                  "Submit review"
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,15 @@
+.verified-badge {
+  display: inline-flex;
+  color: var(--accent);
+  flex: none;
+}
+
+.verified-badge-sm {
+  width: 14px;
+  height: 14px;
+}
+
+.verified-badge-md {
+  width: 18px;
+  height: 18px;
+}
