@@ -1,7 +1,12 @@
-// Talks only to our own /api/* routes (proxied to server.js — see
-// vite.config.ts). The browser never calls riotgames.com directly or sees
-// RIOT_API_KEY; server.js is the only thing holding it.
+// Talks only to our own /api/* routes. In dev this is relative and Vite's
+// proxy forwards it to server.js (see vite.config.ts). In production the
+// client (Vercel) and server (Render) are on different domains, so
+// VITE_API_URL — set in the Vercel project's env vars to the Render service
+// URL — is prepended instead. The browser never calls riotgames.com
+// directly or sees RIOT_API_KEY; server.js is the only thing holding it.
 import type { LiveGame, MatchSummary, Review, ReviewScores, RiotId, SummonerProfile, VoteValue } from "../types";
+
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 export class ApiError extends Error {
   status: number;
@@ -20,11 +25,11 @@ async function parseJsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 function getJson<T>(url: string): Promise<T> {
-  return fetch(url).then(parseJsonOrThrow<T>);
+  return fetch(API_BASE + url).then(parseJsonOrThrow<T>);
 }
 
 function postJson<T>(url: string, payload: unknown): Promise<T> {
-  return fetch(url, {
+  return fetch(API_BASE + url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
