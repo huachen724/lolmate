@@ -80,7 +80,7 @@ export function LiveMatchPage() {
         <h2>
           {gameName}#{tagLine} isn't in a game right now
         </h2>
-        <p className="muted">spectator-v5 returned 404 — this player isn't currently in an active game.</p>
+        <p className="muted">Check back once they're in champ select or an active game.</p>
       </div>
     );
   }
