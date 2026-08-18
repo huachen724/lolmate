@@ -26,6 +26,11 @@ export const pool = new Pool({
 // the check. It's still only as strong as that identity: an unverified
 // reviewer who clears localStorage gets a new reviewer_key and can review
 // again — there's no way around that without real accounts.
+// Score columns are nullable — star ratings are optional per category (only
+// the written `body` is required). A `CHECK (col BETWEEN 1 AND 5)`
+// constraint already permits NULL on its own (a CHECK expression that
+// evaluates to NULL, rather than false, isn't a violation in Postgres), so
+// dropping NOT NULL below is the only schema change needed for that.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS reviews (
   id text PRIMARY KEY,
@@ -36,11 +41,11 @@ CREATE TABLE IF NOT EXISTS reviews (
   reviewer_tag_line text,
   reviewer_anonymous boolean NOT NULL DEFAULT false,
   reviewer_display_name text,
-  map_awareness smallint NOT NULL CHECK (map_awareness BETWEEN 1 AND 5),
-  mechanical_skill smallint NOT NULL CHECK (mechanical_skill BETWEEN 1 AND 5),
-  teamwork smallint NOT NULL CHECK (teamwork BETWEEN 1 AND 5),
-  communication smallint NOT NULL CHECK (communication BETWEEN 1 AND 5),
-  sportsmanship smallint NOT NULL CHECK (sportsmanship BETWEEN 1 AND 5),
+  map_awareness smallint CHECK (map_awareness BETWEEN 1 AND 5),
+  mechanical_skill smallint CHECK (mechanical_skill BETWEEN 1 AND 5),
+  teamwork smallint CHECK (teamwork BETWEEN 1 AND 5),
+  communication smallint CHECK (communication BETWEEN 1 AND 5),
+  sportsmanship smallint CHECK (sportsmanship BETWEEN 1 AND 5),
   body text NOT NULL,
   shared_games_with_target int NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -58,7 +63,21 @@ CREATE TABLE IF NOT EXISTS review_votes (
 );
 `;
 
+// `CREATE TABLE IF NOT EXISTS` above only shapes a *new* database — it's a
+// no-op against the `reviews` table that's already deployed in production
+// with NOT NULL score columns. These ALTERs bring an existing table in
+// line with the schema above; DROP NOT NULL is itself a no-op if a column
+// is already nullable, so this is safe to run on every boot.
+const MIGRATIONS = `
+ALTER TABLE reviews ALTER COLUMN map_awareness DROP NOT NULL;
+ALTER TABLE reviews ALTER COLUMN mechanical_skill DROP NOT NULL;
+ALTER TABLE reviews ALTER COLUMN teamwork DROP NOT NULL;
+ALTER TABLE reviews ALTER COLUMN communication DROP NOT NULL;
+ALTER TABLE reviews ALTER COLUMN sportsmanship DROP NOT NULL;
+`;
+
 export async function runMigrations() {
   await pool.query(SCHEMA);
+  await pool.query(MIGRATIONS);
   console.log("[SERVER] Database schema ready");
 }

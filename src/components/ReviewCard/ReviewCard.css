@@ -45,6 +45,11 @@
   color: var(--text);
 }
 
+.review-card-no-ratings {
+  margin: 0;
+  font-style: italic;
+}
+
 .review-card-body {
   margin: 0;
   font-size: 14px;

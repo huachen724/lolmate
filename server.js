@@ -447,9 +447,13 @@ app.post("/api/reviews", async (req, res) => {
     sharedGamesWithTarget,
   } = req.body || {};
 
-  if (!id || !targetPuuid || !reviewerKey || !reviewerKind || !scores || !body) {
+  // Star ratings are optional (see db.js) — only the written body is
+  // required. `scores` itself may be omitted entirely; any category left
+  // out is stored as NULL.
+  if (!id || !targetPuuid || !reviewerKey || !reviewerKind || !body || !body.trim()) {
     return res.status(400).json({ error: "Missing required review fields." });
   }
+  const s = scores || {};
 
   try {
     const { rows } = await pool.query(
@@ -468,11 +472,11 @@ app.post("/api/reviews", async (req, res) => {
         reviewerTagLine ?? null,
         !!reviewerAnonymous,
         reviewerDisplayName ?? null,
-        scores.mapAwareness,
-        scores.mechanicalSkill,
-        scores.teamwork,
-        scores.communication,
-        scores.sportsmanship,
+        s.mapAwareness ?? null,
+        s.mechanicalSkill ?? null,
+        s.teamwork ?? null,
+        s.communication ?? null,
+        s.sportsmanship ?? null,
         body,
         sharedGamesWithTarget ?? 0,
       ],

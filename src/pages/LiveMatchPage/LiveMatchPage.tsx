@@ -165,7 +165,10 @@ function TeamColumn({
             </div>
             <div className="live-player-reviews">
               {summary.reviewCount > 0 ? (
-                <span className="tag live-review-tag">★ {summary.overallAverage.toFixed(1)} ({summary.reviewCount})</span>
+                <span className="tag live-review-tag">
+                  {summary.overallAverage != null ? `★ ${summary.overallAverage.toFixed(1)} ` : ""}
+                  ({summary.reviewCount})
+                </span>
               ) : (
                 <span className="faint">No reviews</span>
               )}

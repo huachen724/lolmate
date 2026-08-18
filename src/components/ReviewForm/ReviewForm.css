@@ -148,6 +148,10 @@
   padding: 12px 14px;
 }
 
+.review-form-scores-hint {
+  margin: 0;
+}
+
 .review-form-score-row {
   display: flex;
   align-items: center;

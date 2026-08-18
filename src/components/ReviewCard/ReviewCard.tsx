@@ -4,15 +4,9 @@ import type { Review, VoteValue } from "../../types";
 import { useSession } from "../../hooks/useSession";
 import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
 import { voteOnReview } from "../../lib/api";
+import { timeAgo } from "../../lib/time";
 import { VerifiedBadge } from "../VerifiedBadge/VerifiedBadge";
 import "./ReviewCard.css";
-
-function timeAgo(timestamp: number): string {
-  const hours = Math.round((Date.now() - timestamp) / 3600000);
-  if (hours < 1) return "just now";
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
 
 function reviewerLabel(review: Review): { name: string; verified: boolean } {
   if (review.reviewer.kind === "verified") {
@@ -31,6 +25,7 @@ export function ReviewCard({ review }: { review: Review }) {
   const [myVote, setMyVote] = useState<VoteValue | null>(review.myVote ?? null);
 
   const { name, verified } = reviewerLabel(review);
+  const ratedCategories = REVIEW_CATEGORIES.filter((c) => review.scores[c.key] != null);
 
   // Thumbs up/down dedup: one vote per (reviewId, voterKey), enforced by a
   // unique constraint in the database (see db.js) — voterKey is the
@@ -66,14 +61,18 @@ export function ReviewCard({ review }: { review: Review }) {
         <span className="faint">{timeAgo(review.createdAt)}</span>
       </header>
 
-      <div className="review-card-scores">
-        {REVIEW_CATEGORIES.map((category) => (
-          <div className="review-card-score" key={category.key} title={category.hint}>
-            <span className="faint">{category.label}</span>
-            <strong>{review.scores[category.key]}/5</strong>
-          </div>
-        ))}
-      </div>
+      {ratedCategories.length > 0 ? (
+        <div className="review-card-scores">
+          {ratedCategories.map((category) => (
+            <div className="review-card-score" key={category.key} title={category.hint}>
+              <span className="faint">{category.label}</span>
+              <strong>{review.scores[category.key]}/5</strong>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="faint review-card-no-ratings">No category ratings — comment only.</p>
+      )}
 
       <p className="review-card-body">{review.body}</p>
 

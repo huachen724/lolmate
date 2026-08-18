@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useSession } from "../../hooks/useSession";
 import { ApiError, fetchLiveGame, fetchProfile, fetchReviewsForTarget } from "../../lib/api";
 import { computeReviewSummary } from "../../lib/reviewStats";
 import { addRecentSearch, getOrCreateUnverifiedReviewerId } from "../../lib/session";
 import { profileIconUrl, useDdragonVersion } from "../../lib/ddragon";
+import { PROFILE_REFRESH_COOLDOWN_MS, readProfileCache, writeProfileCache } from "../../lib/profileCache";
+import { timeAgo } from "../../lib/time";
 import { ChampionAvatar } from "../../components/ChampionAvatar/ChampionAvatar";
 import { RankBadge } from "../../components/RankBadge/RankBadge";
 import { LoadingState } from "../../components/Spinner/Spinner";
@@ -28,20 +30,40 @@ export function PlayerProfilePage() {
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "error"; kind: "not-found" | "rate-limited" | "unknown"; message: string }
-    | { status: "ready"; profile: SummonerProfile; matches: MatchSummary[]; isLive: boolean }
+    | { status: "ready"; profile: SummonerProfile; matches: MatchSummary[]; isLive: boolean; fetchedAt: number }
   >({ status: "loading" });
   const [reviews, setReviews] = useState<Review[]>([]);
   const [showReviewForm, setShowReviewForm] = useState(false);
-  const [retryNonce, setRetryNonce] = useState(0);
+  // Bumping this re-runs the fetch effect below (retry-after-error and the
+  // manual refresh button both use it). `forceRefetchRef` is what actually
+  // tells that effect to skip the cache for this one run — a plain nonce
+  // dependency can't distinguish "user asked for a real refresh" from
+  // "gameName/tagLine changed", so relying on the nonce's value alone would
+  // wrongly keep bypassing the cache for every profile visited afterward.
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const forceRefetchRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    const bypassCache = forceRefetchRef.current;
+    forceRefetchRef.current = false;
+
+    if (!bypassCache) {
+      const cached = readProfileCache(gameName, tagLine);
+      if (cached && Date.now() - cached.fetchedAt < PROFILE_REFRESH_COOLDOWN_MS) {
+        setState({ status: "ready", ...cached });
+        return;
+      }
+    }
+
     setState({ status: "loading" });
 
     Promise.all([fetchProfile(gameName, tagLine), fetchLiveGame(gameName, tagLine).catch(() => ({ live: false as const }))])
       .then(([{ profile, matches }, liveResult]) => {
         if (cancelled) return;
-        setState({ status: "ready", profile, matches, isLive: liveResult.live });
+        const isLive = liveResult.live;
+        setState({ status: "ready", profile, matches, isLive, fetchedAt: Date.now() });
+        writeProfileCache(gameName, tagLine, { profile, matches, isLive });
         addRecentSearch(profile.riotId);
       })
       .catch((error: unknown) => {
@@ -73,7 +95,12 @@ export function PlayerProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [gameName, tagLine, retryNonce]);
+  }, [gameName, tagLine, refreshNonce]);
+
+  function forceRefresh() {
+    forceRefetchRef.current = true;
+    setRefreshNonce((n) => n + 1);
+  }
 
   const targetPuuid = state.status === "ready" ? state.profile.puuid : null;
 
@@ -112,7 +139,7 @@ export function PlayerProfilePage() {
         <h2>{heading}</h2>
         <p className="muted">{state.message}</p>
         {state.kind !== "not-found" && (
-          <button className="btn btn-primary" onClick={() => setRetryNonce((n) => n + 1)}>
+          <button className="btn btn-primary" onClick={forceRefresh}>
             Try again
           </button>
         )}
@@ -120,7 +147,7 @@ export function PlayerProfilePage() {
     );
   }
 
-  const { profile, matches, isLive } = state;
+  const { profile, matches, isLive, fetchedAt } = state;
   const summary = computeReviewSummary(reviews);
   const isSelf = session?.puuid === profile.puuid;
 
@@ -155,6 +182,8 @@ export function PlayerProfilePage() {
           </button>
         )}
       </header>
+
+      <ProfileRefreshStatus fetchedAt={fetchedAt} onRefresh={forceRefresh} />
 
       <section className="profile-stats card">
         <div className="profile-stat">
@@ -220,6 +249,44 @@ export function PlayerProfilePage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// "Data as of Xm ago" plus a manual refresh action, disabled with a live
+// countdown until PROFILE_REFRESH_COOLDOWN_MS has elapsed since the last
+// real Riot fetch — see lib/profileCache.ts for why this exists.
+function ProfileRefreshStatus({ fetchedAt, onRefresh }: { fetchedAt: number; onRefresh: () => void }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const remaining = fetchedAt + PROFILE_REFRESH_COOLDOWN_MS - Date.now();
+    if (remaining <= 0) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [fetchedAt]);
+
+  const remainingMs = Math.max(0, fetchedAt + PROFILE_REFRESH_COOLDOWN_MS - now);
+
+  if (remainingMs === 0) {
+    return (
+      <div className="profile-refresh-row">
+        <button type="button" className="btn btn-ghost profile-refresh-btn" onClick={onRefresh}>
+          ↻ Refresh
+        </button>
+      </div>
+    );
+  }
+
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const mm = Math.floor(totalSeconds / 60);
+  const ss = String(totalSeconds % 60).padStart(2, "0");
+
+  return (
+    <div className="profile-refresh-row">
+      <span className="faint">
+        Data as of {timeAgo(fetchedAt)} · next refresh available in {mm}:{ss}
+      </span>
     </div>
   );
 }

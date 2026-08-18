@@ -110,7 +110,10 @@ export const REVIEW_CATEGORIES: { key: ReviewCategory; label: string; hint: stri
   { key: "sportsmanship", label: "Sportsmanship", hint: "Tilt-resistance, no int-feeding or flame" },
 ];
 
-export type ReviewScores = Record<ReviewCategory, number>; // each 1-5
+// Each category is 1-5, or null if the reviewer chose not to rate it —
+// only the written comment is required, star ratings are optional per
+// category (see ReviewForm).
+export type ReviewScores = Record<ReviewCategory, number | null>
 
 // Either a verified Riot-authenticated reviewer, or an unverified one who
 // just typed a display name. Dedup (one review per reviewer per target) is
@@ -134,7 +137,8 @@ export interface Review {
   upvotes: number;
   downvotes: number;
   // Games the reviewer has shared with the target at time of writing —
-  // reviews are only allowed once this meets MIN_SHARED_GAMES_TO_REVIEW.
+  // reviews are only allowed while they've played together within
+  // REVIEW_ELIGIBILITY_WINDOW_MS (see lib/constants.ts).
   sharedGamesWithTarget: number;
   // Computed server-side relative to whichever reviewerKey/voterKey the
   // request was made with — never derived from other people's keys, which
@@ -144,8 +148,9 @@ export interface Review {
 }
 
 export interface ReviewSummary {
-  averageScores: ReviewScores;
-  overallAverage: number;
+  // Per-category average, or null if nobody has rated that category yet.
+  averageScores: Record<ReviewCategory, number | null>;
+  overallAverage: number | null;
   reviewCount: number;
 }
 

@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import { REVIEW_CATEGORIES } from "../../types";
-import type { MatchSummary, Review, ReviewScores, RiotId } from "../../types";
-import { MIN_SHARED_GAMES_TO_REVIEW } from "../../lib/constants";
+import type { MatchSummary, Review, ReviewCategory, ReviewScores, RiotId } from "../../types";
+import { REVIEW_BODY_MAX_LENGTH, REVIEW_ELIGIBILITY_WINDOW_MS } from "../../lib/constants";
 import { ApiError, fetchAccount, submitReview } from "../../lib/api";
-import { countSharedGames } from "../../lib/reviewStats";
+import { countSharedGames, mostRecentSharedGameTimestamp } from "../../lib/reviewStats";
 import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
 import type { RiotSession } from "../../lib/session";
+import { timeAgo } from "../../lib/time";
 import { RatingStars } from "../RatingStars/RatingStars";
 import { Spinner } from "../Spinner/Spinner";
 import "./ReviewForm.css";
 
-const BODY_MAX_LENGTH = 600;
 const RIOT_ID_LOOKUP_DEBOUNCE_MS = 500;
 
 interface ReviewFormProps {
@@ -25,7 +25,12 @@ interface ReviewFormProps {
   onSubmit: (review: Review) => void;
 }
 
-const emptyScores: ReviewScores = {
+// Local editing state: 0 means "no stars clicked yet" (RatingStars' unrated
+// sentinel), converted to null on submit rather than reusing ReviewScores
+// (which allows null directly) since RatingStars deals in plain numbers.
+type DraftScores = Record<ReviewCategory, number>;
+
+const emptyScores: DraftScores = {
   mapAwareness: 0,
   mechanicalSkill: 0,
   teamwork: 0,
@@ -34,7 +39,7 @@ const emptyScores: ReviewScores = {
 };
 
 export function ReviewForm({ target, targetMatches, alreadyReviewed, session, onClose, onSubmit }: ReviewFormProps) {
-  const [scores, setScores] = useState<ReviewScores>(emptyScores);
+  const [scores, setScores] = useState<DraftScores>(emptyScores);
   const [body, setBody] = useState("");
   const [anonymous, setAnonymous] = useState(false);
   const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" } | { status: "error"; message: string }>(
@@ -103,14 +108,15 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
 
   const reviewerPuuid = session ? session.puuid : lookupState.status === "found" ? lookupState.puuid : null;
   const sharedGames = reviewerPuuid ? countSharedGames(targetMatches, target.puuid, reviewerPuuid) : 0;
+  const lastSharedGameAt = reviewerPuuid
+    ? mostRecentSharedGameTimestamp(targetMatches, target.puuid, reviewerPuuid)
+    : null;
 
-  const isEligible = sharedGames >= MIN_SHARED_GAMES_TO_REVIEW;
-  const allScored = REVIEW_CATEGORIES.every((c) => scores[c.key] > 0);
+  const isEligible = lastSharedGameAt !== null && Date.now() - lastSharedGameAt <= REVIEW_ELIGIBILITY_WINDOW_MS;
   const canSubmit =
     !alreadyReviewed &&
     isEligible &&
-    allScored &&
-    body.trim().length >= 10 &&
+    body.trim().length > 0 &&
     submitState.status !== "submitting" &&
     (session ? true : displayName.trim().length >= 2 && reviewerPuuid !== null);
 
@@ -128,6 +134,13 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
 
     setSubmitState({ status: "submitting" });
     try {
+      // Unrated categories are 0 in local UI state (RatingStars' "no stars
+      // clicked" sentinel) — send those as null rather than a fake 0/5.
+      const submittedScores: ReviewScores = REVIEW_CATEGORIES.reduce((acc, c) => {
+        acc[c.key] = scores[c.key] > 0 ? scores[c.key] : null;
+        return acc;
+      }, {} as ReviewScores);
+
       const review = await submitReview({
         id: `rev-${crypto.randomUUID()}`,
         targetPuuid: target.puuid,
@@ -137,7 +150,7 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
         reviewerTagLine: session?.riotId.tagLine,
         reviewerAnonymous: session ? anonymous : undefined,
         reviewerDisplayName: session ? undefined : displayName.trim(),
-        scores,
+        scores: submittedScores,
         body: body.trim(),
         sharedGamesWithTarget: sharedGames,
       });
@@ -222,11 +235,16 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
 
             <div className="review-form-eligibility" data-eligible={isEligible}>
               {isEligible
-                ? `✓ ${sharedGames} shared games with ${target.riotId.gameName} — eligible to review.`
-                : `Need ${MIN_SHARED_GAMES_TO_REVIEW} shared games to review this player (found ${sharedGames} in their last ${targetMatches.length} matches).`}
+                ? `✓ Played with ${target.riotId.gameName} ${timeAgo(lastSharedGameAt as number)} — eligible to review.`
+                : lastSharedGameAt !== null
+                  ? `You played with ${target.riotId.gameName} ${timeAgo(lastSharedGameAt)}, which is outside the 1-week review window.`
+                  : `You need to have played with ${target.riotId.gameName} in the past week to review them (none found in their last ${targetMatches.length} matches).`}
             </div>
 
             <div className="review-form-scores">
+              <p className="faint review-form-scores-hint">
+                Optional — rate any categories you want, or leave them all blank and just write a comment.
+              </p>
               {REVIEW_CATEGORIES.map((category) => (
                 <div className="review-form-score-row" key={category.key}>
                   <div>
@@ -235,7 +253,7 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
                   </div>
                   <RatingStars
                     value={scores[category.key]}
-                    onChange={(v) => setScores((s) => ({ ...s, [category.key]: v }))}
+                    onChange={(v) => setScores((s) => ({ ...s, [category.key]: v === s[category.key] ? 0 : v }))}
                     label={category.label}
                   />
                 </div>
@@ -246,12 +264,12 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
               Your review
               <textarea
                 value={body}
-                onChange={(e) => setBody(e.target.value.slice(0, BODY_MAX_LENGTH))}
+                onChange={(e) => setBody(e.target.value.slice(0, REVIEW_BODY_MAX_LENGTH))}
                 placeholder="What was it like playing with this person?"
                 rows={4}
               />
               <span className="faint review-form-counter">
-                {body.length}/{BODY_MAX_LENGTH}
+                {REVIEW_BODY_MAX_LENGTH - body.length} characters remaining
               </span>
             </label>
 
