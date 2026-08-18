@@ -48,7 +48,7 @@ export function LiveMatchPage() {
     if (visiblePuuids.length === 0) return;
 
     let cancelled = false;
-    const voterKey = session ? session.puuid : getOrCreateUnverifiedReviewerId();
+    const voterKey = session?.riotPuuid ? session.riotPuuid : getOrCreateUnverifiedReviewerId();
     fetchReviewsBatch(visiblePuuids, voterKey)
       .then((byPuuid) => {
         if (!cancelled) setReviewsByPuuid(byPuuid);
@@ -59,7 +59,7 @@ export function LiveMatchPage() {
     return () => {
       cancelled = true;
     };
-  }, [state.status === "live" ? state.game.gameId : null, session?.puuid]);
+  }, [state.status === "live" ? state.game.gameId : null, session?.riotPuuid]);
 
   if (state.status === "loading") {
     return <LoadingState message="Checking for an active game…" />;

@@ -61,6 +61,40 @@ CREATE TABLE IF NOT EXISTS review_votes (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (review_id, voter_key)
 );
+
+-- Real login (Discord/Google OAuth, see auth.js) — one row per third-party
+-- account. riot_puuid stays NULL until the account owner completes the
+-- profile-icon challenge (see icon_verification_challenges below); only
+-- then can this account post reviews as "verified" (server.js's POST
+-- /api/reviews requires riot_puuid to be set, never trusts a client-
+-- supplied identity for the verified path). UNIQUE on riot_puuid stops two
+-- different logins from both claiming the same Riot account.
+CREATE TABLE IF NOT EXISTS users (
+  id text PRIMARY KEY,
+  provider text NOT NULL CHECK (provider IN ('discord', 'google')),
+  provider_user_id text NOT NULL,
+  display_name text NOT NULL,
+  avatar_url text,
+  email text,
+  riot_puuid text UNIQUE,
+  riot_game_name text,
+  riot_tag_line text,
+  riot_verified_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (provider, provider_user_id)
+);
+
+-- One in-flight icon-ownership challenge per user (see POST /api/verify/start
+-- and /api/verify/check in server.js). Starting a new challenge overwrites
+-- any existing one for that user rather than allowing several at once.
+CREATE TABLE IF NOT EXISTS icon_verification_challenges (
+  user_id text PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  puuid text NOT NULL,
+  game_name text NOT NULL,
+  tag_line text NOT NULL,
+  challenge_icon_id int NOT NULL,
+  expires_at timestamptz NOT NULL
+);
 `;
 
 // `CREATE TABLE IF NOT EXISTS` above only shapes a *new* database — it's a

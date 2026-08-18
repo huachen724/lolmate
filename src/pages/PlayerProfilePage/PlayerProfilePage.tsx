@@ -110,7 +110,7 @@ export function PlayerProfilePage() {
   useEffect(() => {
     if (!targetPuuid) return;
     let cancelled = false;
-    const voterKey = session ? session.puuid : getOrCreateUnverifiedReviewerId();
+    const voterKey = session?.riotPuuid ? session.riotPuuid : getOrCreateUnverifiedReviewerId();
     fetchReviewsForTarget(targetPuuid, voterKey)
       .then((fetched) => {
         if (!cancelled) setReviews(fetched);
@@ -121,7 +121,7 @@ export function PlayerProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [targetPuuid, session?.puuid]);
+  }, [targetPuuid, session?.riotPuuid]);
 
   if (state.status === "loading") {
     return <LoadingState message={`Loading ${gameName}#${tagLine}'s profile…`} />;
@@ -149,7 +149,7 @@ export function PlayerProfilePage() {
 
   const { profile, matches, isLive, fetchedAt } = state;
   const summary = computeReviewSummary(reviews);
-  const isSelf = session?.puuid === profile.puuid;
+  const isSelf = session?.riotPuuid === profile.puuid;
 
   return (
     <div className="profile-page">
@@ -241,7 +241,7 @@ export function PlayerProfilePage() {
           target={profile}
           targetMatches={matches}
           alreadyReviewed={reviews.some((r) => r.isMine)}
-          session={session}
+          session={session ?? null}
           onClose={() => setShowReviewForm(false)}
           onSubmit={(review) => {
             setReviews((prev) => [review, ...prev]);

@@ -155,3 +155,22 @@ export interface ReviewSummary {
 }
 
 export type VoteValue = 1 | -1;
+
+// --- Accounts (Discord/Google login + Riot ownership verification) -------
+
+// Logged in via Discord or Google (see server.js's /api/auth/* routes and
+// auth.js). riotPuuid/riotGameName/riotTagLine stay null until the account
+// owner completes the profile-icon ownership challenge (see
+// components/RiotVerifyModal) — only once that's done can this identity
+// post reviews as "verified" (enforced server-side, never trusted from the
+// client — see POST /api/reviews).
+export interface AuthUser {
+  id: string;
+  provider: "discord" | "google";
+  displayName: string;
+  avatarUrl: string | null;
+  riotPuuid: string | null;
+  riotGameName: string | null;
+  riotTagLine: string | null;
+  riotVerifiedAt: number | null; // epoch ms
+}

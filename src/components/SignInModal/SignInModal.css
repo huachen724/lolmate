@@ -35,6 +35,16 @@
   gap: 10px;
 }
 
+.sign-in-modal-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sign-in-provider-btn {
+  width: 100%;
+}
+
 .sign-in-modal-form input {
   background: var(--bg-elevated);
   border: 1px solid var(--border);

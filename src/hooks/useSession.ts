@@ -1,17 +1,33 @@
 import { useEffect, useState } from "react";
-import { getSession, SESSION_CHANGED_EVENT } from "../lib/session";
-import type { RiotSession } from "../lib/session";
+import { fetchMe } from "../lib/api";
+import { SESSION_CHANGED_EVENT } from "../lib/session";
+import type { AuthUser } from "../types";
 
-export function useSession(): RiotSession | null {
-  const [session, setSession] = useState<RiotSession | null>(() => getSession());
+// undefined = still checking (GET /api/auth/me hasn't resolved yet), null =
+// definitely signed out, AuthUser = signed in. Callers that need to avoid a
+// flash-redirect (e.g. DashboardPage) should treat undefined as "wait,
+// don't decide yet" rather than falsy-coercing it to "signed out".
+export function useSession(): AuthUser | null | undefined {
+  const [session, setSession] = useState<AuthUser | null | undefined>(undefined);
 
   useEffect(() => {
-    const handler = () => setSession(getSession());
-    window.addEventListener(SESSION_CHANGED_EVENT, handler);
-    window.addEventListener("storage", handler);
+    let cancelled = false;
+
+    function load() {
+      fetchMe()
+        .then((res) => {
+          if (!cancelled) setSession(res.user);
+        })
+        .catch(() => {
+          if (!cancelled) setSession(null);
+        });
+    }
+
+    load();
+    window.addEventListener(SESSION_CHANGED_EVENT, load);
     return () => {
-      window.removeEventListener(SESSION_CHANGED_EVENT, handler);
-      window.removeEventListener("storage", handler);
+      cancelled = true;
+      window.removeEventListener(SESSION_CHANGED_EVENT, load);
     };
   }, []);
 

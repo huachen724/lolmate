@@ -4,17 +4,21 @@ import { useSession } from "../../hooks/useSession";
 import { signOut } from "../../lib/session";
 import { SearchBar } from "../SearchBar/SearchBar";
 import { SignInModal } from "../SignInModal/SignInModal";
+import { RiotVerifyModal } from "../RiotVerifyModal/RiotVerifyModal";
 import "./Navbar.css";
 
 export function Navbar() {
   const session = useSession();
   const navigate = useNavigate();
   const [showSignIn, setShowSignIn] = useState(false);
+  const [showVerify, setShowVerify] = useState(false);
 
-  function handleSignOut() {
-    signOut();
+  async function handleSignOut() {
+    await signOut();
     navigate("/");
   }
+
+  const needsRiotVerification = session != null && !session.riotPuuid;
 
   return (
     <header className="navbar">
@@ -27,43 +31,51 @@ export function Navbar() {
         <SearchBar variant="compact" />
 
         <nav className="navbar-links">
-          {session && (
+          {session?.riotGameName && session.riotTagLine && (
             <Link
-              to={`/live/${encodeURIComponent(session.riotId.gameName)}/${encodeURIComponent(session.riotId.tagLine)}`}
+              to={`/live/${encodeURIComponent(session.riotGameName)}/${encodeURIComponent(session.riotTagLine)}`}
               className="navbar-link"
             >
               My live game
             </Link>
           )}
 
-          {session ? (
+          {session === undefined ? null : session === null ? (
+            <button className="btn btn-primary" onClick={() => setShowSignIn(true)}>
+              Sign in
+            </button>
+          ) : needsRiotVerification ? (
             <div className="navbar-account">
-              <Link to="/dashboard" className="navbar-account-name">
-                <img
-                  className="navbar-avatar"
-                  alt=""
-                  src={`https://placehold.co/32x32/161a2c/5ce1c6?text=${session.riotId.gameName[0]}`}
-                />
-                {session.riotId.gameName}
-                <span className="faint">#{session.riotId.tagLine}</span>
-              </Link>
+              <span className="faint">{session.displayName}</span>
+              <button className="btn btn-primary" onClick={() => setShowVerify(true)}>
+                Verify Riot account
+              </button>
               <button className="btn btn-ghost" onClick={handleSignOut}>
                 Sign out
               </button>
             </div>
           ) : (
-            <button className="btn btn-primary" onClick={() => setShowSignIn(true)}>
-              Sign in with Riot Games
-            </button>
+            <div className="navbar-account">
+              <Link to="/dashboard" className="navbar-account-name">
+                {session.avatarUrl && <img className="navbar-avatar" alt="" src={session.avatarUrl} />}
+                {session.riotGameName}
+                <span className="faint">#{session.riotTagLine}</span>
+              </Link>
+              <button className="btn btn-ghost" onClick={handleSignOut}>
+                Sign out
+              </button>
+            </div>
           )}
         </nav>
       </div>
 
-      {showSignIn && (
-        <SignInModal
-          onClose={() => setShowSignIn(false)}
-          onSignedIn={() => {
-            setShowSignIn(false);
+      {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} />}
+
+      {showVerify && (
+        <RiotVerifyModal
+          onClose={() => setShowVerify(false)}
+          onVerified={() => {
+            setShowVerify(false);
             navigate("/dashboard");
           }}
         />

@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { REVIEW_CATEGORIES } from "../../types";
-import type { MatchSummary, Review, ReviewCategory, ReviewScores, RiotId } from "../../types";
+import type { AuthUser, MatchSummary, Review, ReviewCategory, ReviewScores, RiotId } from "../../types";
 import { REVIEW_BODY_MAX_LENGTH, REVIEW_ELIGIBILITY_WINDOW_MS } from "../../lib/constants";
 import { ApiError, fetchAccount, submitReview } from "../../lib/api";
 import { countSharedGames, mostRecentSharedGameTimestamp } from "../../lib/reviewStats";
 import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
-import type { RiotSession } from "../../lib/session";
 import { timeAgo } from "../../lib/time";
 import { RatingStars } from "../RatingStars/RatingStars";
 import { Spinner } from "../Spinner/Spinner";
@@ -20,7 +19,11 @@ interface ReviewFormProps {
   // by the caller from a review list already fetched with `isMine` set
   // (see server.js's rowToReview), rather than re-fetched here.
   alreadyReviewed: boolean;
-  session: RiotSession | null;
+  // Logged in (Discord/Google) does not by itself mean "post as verified"
+  // — only a session with riotPuuid set (icon verification completed) can.
+  // A login without that falls back to the same unverified flow as a
+  // signed-out visitor (see `verifiedIdentity` below).
+  session: AuthUser | null;
   onClose: () => void;
   onSubmit: (review: Review) => void;
 }
@@ -46,8 +49,10 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
     { status: "idle" },
   );
 
-  // Unverified path: someone who didn't go through Riot Sign On. They still
-  // need to prove (informally — there's no real verification without RSO)
+  // Unverified path: someone without a verified Riot account behind their
+  // session (not logged in at all, or logged in but hasn't completed the
+  // icon challenge yet — see RiotVerifyModal). They still need to prove
+  // (informally — there's no server-backed ownership check on this path)
   // that they've actually played with the target, so we ask for a Riot ID
   // and resolve it for real via account-v1 (through our backend) purely to
   // check shared match history. The name shown on the review is the
@@ -63,10 +68,16 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
     | { status: "error"; message: string }
   >({ status: "idle" });
 
-  const reviewerKey = session ? session.puuid : getOrCreateUnverifiedReviewerId();
+  // Only a session that's completed icon verification (riotPuuid set) can
+  // post as verified — logged in without that falls through to the same
+  // unverified flow a signed-out visitor uses.
+  const verifiedIdentity =
+    session?.riotPuuid && session.riotGameName && session.riotTagLine
+      ? { puuid: session.riotPuuid, riotId: { gameName: session.riotGameName, tagLine: session.riotTagLine } }
+      : null;
 
   useEffect(() => {
-    if (session) return;
+    if (verifiedIdentity) return;
     const trimmed = reviewerRiotIdInput.trim();
     if (!trimmed.includes("#")) {
       setLookupState({ status: "idle" });
@@ -104,9 +115,13 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [session, reviewerRiotIdInput]);
+    // verifiedIdentity is a fresh object every render (derived from
+    // session), so it's deliberately not in this dependency list — that
+    // would re-run the effect on every render. session?.riotPuuid is the
+    // primitive that actually determines whether verifiedIdentity is set.
+  }, [session?.riotPuuid, reviewerRiotIdInput]);
 
-  const reviewerPuuid = session ? session.puuid : lookupState.status === "found" ? lookupState.puuid : null;
+  const reviewerPuuid = verifiedIdentity ? verifiedIdentity.puuid : lookupState.status === "found" ? lookupState.puuid : null;
   const sharedGames = reviewerPuuid ? countSharedGames(targetMatches, target.puuid, reviewerPuuid) : 0;
   const lastSharedGameAt = reviewerPuuid
     ? mostRecentSharedGameTimestamp(targetMatches, target.puuid, reviewerPuuid)
@@ -118,7 +133,7 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
     isEligible &&
     body.trim().length > 0 &&
     submitState.status !== "submitting" &&
-    (session ? true : displayName.trim().length >= 2 && reviewerPuuid !== null);
+    (verifiedIdentity ? true : displayName.trim().length >= 2 && reviewerPuuid !== null);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -141,15 +156,17 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
         return acc;
       }, {} as ReviewScores);
 
+      // reviewerKey/gameName/tagLine for the verified path are derived
+      // server-side from the session cookie (see server.js's POST
+      // /api/reviews) — never trusted from here — so only the unverified
+      // path needs to send its own identity.
       const review = await submitReview({
         id: `rev-${crypto.randomUUID()}`,
         targetPuuid: target.puuid,
-        reviewerKey,
-        reviewerKind: session ? "verified" : "unverified",
-        reviewerGameName: session?.riotId.gameName,
-        reviewerTagLine: session?.riotId.tagLine,
-        reviewerAnonymous: session ? anonymous : undefined,
-        reviewerDisplayName: session ? undefined : displayName.trim(),
+        reviewerKind: verifiedIdentity ? "verified" : "unverified",
+        reviewerKey: verifiedIdentity ? undefined : getOrCreateUnverifiedReviewerId(),
+        reviewerAnonymous: verifiedIdentity ? anonymous : undefined,
+        reviewerDisplayName: verifiedIdentity ? undefined : displayName.trim(),
         scores: submittedScores,
         body: body.trim(),
         sharedGamesWithTarget: sharedGames,
@@ -188,9 +205,11 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
           </p>
         ) : (
           <form onSubmit={handleSubmit} className="review-form-body">
-            {session ? (
+            {verifiedIdentity ? (
               <div className="review-form-identity">
-                <span className="tag">Posting as {session.riotId.gameName}#{session.riotId.tagLine}</span>
+                <span className="tag">
+                  Posting as {verifiedIdentity.riotId.gameName}#{verifiedIdentity.riotId.tagLine}
+                </span>
                 <label className="review-form-checkbox">
                   <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
                   Post anonymously
@@ -228,7 +247,10 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
                 </label>
                 <p className="faint review-form-hint">
                   We'll remember this browser so you can't submit more than one review for the
-                  same player. Sign in with Riot Games instead to post as a verified account.
+                  same player.
+                  {session
+                    ? " Verify your Riot account to post as a verified account instead."
+                    : " Sign in and verify your Riot account to post as a verified account instead."}
                 </p>
               </div>
             )}

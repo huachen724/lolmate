@@ -4,9 +4,18 @@
 // VITE_API_URL — set in the Vercel project's env vars to the Render service
 // URL — is prepended instead. The browser never calls riotgames.com
 // directly or sees RIOT_API_KEY; server.js is the only thing holding it.
-import type { LiveGame, MatchSummary, Review, ReviewScores, RiotId, SummonerProfile, VoteValue } from "../types";
+import type {
+  AuthUser,
+  LiveGame,
+  MatchSummary,
+  Review,
+  ReviewScores,
+  RiotId,
+  SummonerProfile,
+  VoteValue,
+} from "../types";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "";
+export const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 export class ApiError extends Error {
   status: number;
@@ -24,14 +33,19 @@ async function parseJsonOrThrow<T>(response: Response): Promise<T> {
   return response.json();
 }
 
+// `credentials: "include"` on every call — needed so the session cookie
+// (set on the Render domain, see auth.js) rides along on cross-origin
+// fetches from the Vercel-hosted frontend. Harmless in dev, where /api/*
+// goes through Vite's same-origin proxy anyway.
 function getJson<T>(url: string): Promise<T> {
-  return fetch(API_BASE + url).then(parseJsonOrThrow<T>);
+  return fetch(API_BASE + url, { credentials: "include" }).then(parseJsonOrThrow<T>);
 }
 
 function postJson<T>(url: string, payload: unknown): Promise<T> {
   return fetch(API_BASE + url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(payload),
   }).then(parseJsonOrThrow<T>);
 }
@@ -71,10 +85,11 @@ export function fetchReviewsBatch(puuids: string[], voterKey: string): Promise<R
 export interface NewReviewPayload {
   id: string;
   targetPuuid: string;
-  reviewerKey: string;
   reviewerKind: "verified" | "unverified";
-  reviewerGameName?: string;
-  reviewerTagLine?: string;
+  // Required for "unverified" (the per-browser cookie id); ignored for
+  // "verified" — the server derives that identity from the session cookie
+  // instead, see server.js's POST /api/reviews.
+  reviewerKey?: string;
   reviewerAnonymous?: boolean;
   reviewerDisplayName?: string;
   scores: ReviewScores;
@@ -92,4 +107,33 @@ export function voteOnReview(
   value: VoteValue | null,
 ): Promise<{ upvotes: number; downvotes: number }> {
   return postJson(`/api/reviews/${encodeURIComponent(reviewId)}/vote`, { voterKey, value });
+}
+
+// --- Accounts (Discord/Google login + Riot ownership verification) -------
+
+export function fetchStatus(): Promise<{ hasApiKey: boolean; platform: string; region: string; discordAuth: boolean; googleAuth: boolean }> {
+  return getJson("/api/status");
+}
+
+export function fetchMe(): Promise<{ user: AuthUser | null }> {
+  return getJson("/api/auth/me");
+}
+
+export function logout(): Promise<{ ok: boolean }> {
+  return postJson("/api/auth/logout", {});
+}
+
+export interface VerificationChallenge {
+  puuid: string;
+  riotId: RiotId;
+  challengeIconId: number;
+  expiresAt: number; // epoch ms
+}
+
+export function startIconVerification(gameName: string, tagLine: string): Promise<VerificationChallenge> {
+  return postJson("/api/verify/start", { gameName, tagLine });
+}
+
+export function checkIconVerification(): Promise<{ verified: boolean; riotId?: RiotId }> {
+  return postJson("/api/verify/check", {});
 }

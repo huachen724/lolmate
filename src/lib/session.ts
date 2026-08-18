@@ -1,17 +1,20 @@
-// Mocks two things a real backend + cookies would normally handle: Riot
-// sign-in state, and "remembered visitor" search history. Dedup for
-// reviews and votes used to live here too (client-side, trivially
-// bypassed) — that's now enforced server-side by db.js's UNIQUE
-// constraints, keyed off the reviewerKey/voterKey this module still hands
-// out below for unverified visitors.
+// Login is now real (Discord/Google OAuth, session cookie — see auth.js
+// and hooks/useSession.ts, which fetches GET /api/auth/me). What's left
+// here is the stuff that's genuinely fine to keep client-side: remembered
+// search history, and the per-browser id unverified (not-logged-in)
+// reviewers/voters are identified by. Dedup for reviews and votes is
+// enforced server-side by db.js's UNIQUE constraints, keyed off the
+// reviewerKey/voterKey this module hands out for unverified visitors — a
+// verified voterKey/reviewerKey is derived from the session cookie
+// server-side instead (see server.js's resolveViewerKey).
 
 const STORAGE_KEYS = {
-  riotSession: "lolmate.session.v1",
   recentSearches: "lolmate.recentSearches.v1",
   unverifiedReviewerId: "lolmate.unverifiedReviewerId.v1",
 } as const;
 
 import type { RiotId } from "../types";
+import { logout as apiLogout } from "./api";
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -26,39 +29,20 @@ function writeJson(key: string, value: unknown): void {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-// --- Riot sign-in (mock) -------------------------------------------------
-
-export interface RiotSession {
-  puuid: string;
-  riotId: RiotId;
-}
-
-// Real flow: redirect to Riot Sign On at
-//   https://auth.riotgames.com/authorize?client_id=...&redirect_uri=...&response_type=code&scope=openid
-// then exchange the code server-side for tokens and call account-v1
-// (/riot/account/v1/accounts/me) to resolve the signed-in player's PUUID.
-// We don't have a backend yet, so this just flips a localStorage flag.
-export function getSession(): RiotSession | null {
-  return readJson<RiotSession | null>(STORAGE_KEYS.riotSession, null);
-}
-
-// localStorage writes don't trigger re-renders, and the native "storage"
-// event only fires in *other* tabs, not the one that made the change. This
-// event lets components like Navbar react immediately to sign-in/out
-// happening elsewhere on the page (see hooks/useSession.ts).
+// --- Session change notifications -----------------------------------------
+// useSession() fetches /api/auth/me on mount, which naturally picks up a
+// fresh login after the OAuth redirect flow brings the browser back to a
+// full page load. Sign-out and completing icon verification, though,
+// happen without a page reload — this event tells useSession to refetch
+// immediately instead of waiting for the next mount.
 export const SESSION_CHANGED_EVENT = "lolmate:session-changed";
 
-function notifySessionChanged(): void {
+export function notifySessionChanged(): void {
   window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
-export function mockSignIn(session: RiotSession): void {
-  writeJson(STORAGE_KEYS.riotSession, session);
-  notifySessionChanged();
-}
-
-export function signOut(): void {
-  localStorage.removeItem(STORAGE_KEYS.riotSession);
+export async function signOut(): Promise<void> {
+  await apiLogout().catch(() => {});
   notifySessionChanged();
 }
 

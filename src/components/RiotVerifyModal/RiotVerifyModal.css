@@ -1,0 +1,22 @@
+.riot-verify-modal {
+  max-width: 440px;
+}
+
+.riot-verify-challenge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.riot-verify-challenge p {
+  margin: 0;
+}
+
+.riot-verify-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  border: 1px solid var(--border-light);
+}

@@ -2,17 +2,50 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { pool, runMigrations } from "./db.js";
+import {
+  authProviders,
+  FRONTEND_URL,
+  clearOAuthState,
+  clearSessionCookie,
+  discordAuthorizeUrl,
+  exchangeDiscordCode,
+  exchangeGoogleCode,
+  fetchDiscordUser,
+  fetchGoogleUser,
+  getOAuthStateFromRequest,
+  getUserIdFromRequest,
+  googleAuthorizeUrl,
+  randomState,
+  requireAuth,
+  setOAuthState,
+  setSessionCookie,
+} from "./auth.js";
 
 dotenv.config();
 
 const app = express();
-app.use(cors());
+// Vercel (frontend) and Render (backend) are different origins in
+// production, so this can't be the wildcard `cors()` default once session
+// cookies are involved — `credentials: true` requires an explicit origin,
+// and the browser only sends/accepts the session cookie cross-site with
+// both sides agreeing to it (see auth.js's cookieOptions).
+app.use(cors({ origin: FRONTEND_URL, credentials: true }));
 app.use(express.json());
 
 const RIOT_API_KEY = process.env.RIOT_API_KEY;
 const PLATFORM = process.env.RIOT_PLATFORM || "na1";
 const MAX_RECENT_MATCHES = 10;
 const MAX_CONCURRENT_RIOT_CALLS = 5;
+// Candidate icons for the profile-icon ownership challenge (see POST
+// /api/verify/start) — must be icons every account has unlocked, so a
+// legitimate owner can always switch to whichever one gets picked. IDs
+// 0-28 are League's original "default" icon set from the pre-level-30-
+// rework leveling system, commonly documented as available to every
+// account regardless of level or region. Worth spot-checking against a
+// couple of real accounts (ideally a low-level/newer one) before fully
+// relying on this in production — swap anything that turns out gated.
+const ICON_CHALLENGE_POOL = Array.from({ length: 29 }, (_, i) => i);
+const ICON_CHALLENGE_WINDOW_MS = 2 * 60 * 1000;
 
 if (!RIOT_API_KEY) {
   console.error("Missing RIOT_API_KEY in environment.");
@@ -221,6 +254,202 @@ function summarizeOverall(matches, puuid) {
   };
 }
 
+// --- Accounts (Discord/Google login + Riot ownership verification) --------
+
+async function upsertUser({ provider, providerUserId, displayName, avatarUrl, email }) {
+  const id = `${provider}:${providerUserId}`;
+  const { rows } = await pool.query(
+    `INSERT INTO users (id, provider, provider_user_id, display_name, avatar_url, email)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (provider, provider_user_id)
+     DO UPDATE SET display_name = EXCLUDED.display_name, avatar_url = EXCLUDED.avatar_url, email = EXCLUDED.email
+     RETURNING *`,
+    [id, provider, providerUserId, displayName, avatarUrl, email],
+  );
+  return rows[0];
+}
+
+async function findUserById(userId) {
+  const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+  return rows[0] ?? null;
+}
+
+function toPublicUser(row) {
+  return {
+    id: row.id,
+    provider: row.provider,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    riotPuuid: row.riot_puuid,
+    riotGameName: row.riot_game_name,
+    riotTagLine: row.riot_tag_line,
+    riotVerifiedAt: row.riot_verified_at ? new Date(row.riot_verified_at).getTime() : null,
+  };
+}
+
+// Reviews/votes below should trust the session cookie over whatever a
+// client claims once one is available — falls back to the client-supplied
+// key for the (still-anonymous) unverified reviewer path.
+async function resolveViewerKey(req, suppliedKey) {
+  const userId = getUserIdFromRequest(req);
+  if (userId) {
+    const user = await findUserById(userId);
+    if (user?.riot_puuid) return user.riot_puuid;
+  }
+  return suppliedKey || "";
+}
+
+app.get("/api/auth/discord", (_req, res) => {
+  if (!authProviders.discord.configured) return res.status(503).send("Discord sign-in isn't configured yet.");
+  const state = randomState();
+  setOAuthState(res, state);
+  res.redirect(discordAuthorizeUrl(state));
+});
+
+app.get("/api/auth/discord/callback", async (req, res) => {
+  const expectedState = getOAuthStateFromRequest(req);
+  clearOAuthState(res);
+  try {
+    const { code, state } = req.query;
+    if (!code || !state || state !== expectedState) {
+      return res.redirect(`${FRONTEND_URL}/?authError=discord`);
+    }
+    const token = await exchangeDiscordCode(code);
+    const discordUser = await fetchDiscordUser(token.access_token);
+    const user = await upsertUser({
+      provider: "discord",
+      providerUserId: discordUser.id,
+      displayName: discordUser.displayName,
+      avatarUrl: discordUser.avatarUrl,
+      email: discordUser.email,
+    });
+    setSessionCookie(res, user.id);
+    res.redirect(`${FRONTEND_URL}/dashboard`);
+  } catch (error) {
+    console.error("[AUTH] Discord callback failed:", error);
+    res.redirect(`${FRONTEND_URL}/?authError=discord`);
+  }
+});
+
+app.get("/api/auth/google", (_req, res) => {
+  if (!authProviders.google.configured) return res.status(503).send("Google sign-in isn't configured yet.");
+  const state = randomState();
+  setOAuthState(res, state);
+  res.redirect(googleAuthorizeUrl(state));
+});
+
+app.get("/api/auth/google/callback", async (req, res) => {
+  const expectedState = getOAuthStateFromRequest(req);
+  clearOAuthState(res);
+  try {
+    const { code, state } = req.query;
+    if (!code || !state || state !== expectedState) {
+      return res.redirect(`${FRONTEND_URL}/?authError=google`);
+    }
+    const token = await exchangeGoogleCode(code);
+    const googleUser = await fetchGoogleUser(token.access_token);
+    const user = await upsertUser({
+      provider: "google",
+      providerUserId: googleUser.id,
+      displayName: googleUser.displayName,
+      avatarUrl: googleUser.avatarUrl,
+      email: googleUser.email,
+    });
+    setSessionCookie(res, user.id);
+    res.redirect(`${FRONTEND_URL}/dashboard`);
+  } catch (error) {
+    console.error("[AUTH] Google callback failed:", error);
+    res.redirect(`${FRONTEND_URL}/?authError=google`);
+  }
+});
+
+app.get("/api/auth/me", async (req, res) => {
+  const userId = getUserIdFromRequest(req);
+  if (!userId) return res.json({ user: null });
+  const user = await findUserById(userId);
+  res.json({ user: user ? toPublicUser(user) : null });
+});
+
+app.post("/api/auth/logout", (_req, res) => {
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+// Profile-icon ownership challenge (see README for the full flow). Riot
+// deprecated the old in-client "third-party verification code" endpoint,
+// so this is the standard replacement most third-party sites use: prove
+// you control the account by briefly switching its summoner icon to a
+// specific one we pick, which only the real account owner can do.
+app.post("/api/verify/start", requireAuth, async (req, res) => {
+  if (!RIOT_API_KEY) return res.status(500).json({ error: "Server not configured with RIOT_API_KEY." });
+  const { gameName, tagLine } = req.body || {};
+  if (!gameName || !tagLine) return res.status(400).json({ error: "gameName and tagLine are required." });
+
+  try {
+    const account = await getAccountByRiotId(gameName, tagLine);
+    const summoner = await getSummonerByPuuid(account.puuid);
+    // Exclude their current icon so the challenge always requires an
+    // actual change — otherwise a bystander who happens to already have
+    // that icon set would trivially "pass" without doing anything.
+    const candidates = ICON_CHALLENGE_POOL.filter((iconId) => iconId !== summoner.profileIconId);
+    const challengeIconId = candidates[Math.floor(Math.random() * candidates.length)];
+    const expiresAt = new Date(Date.now() + ICON_CHALLENGE_WINDOW_MS);
+
+    await pool.query(
+      `INSERT INTO icon_verification_challenges (user_id, puuid, game_name, tag_line, challenge_icon_id, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (user_id) DO UPDATE SET
+         puuid = EXCLUDED.puuid, game_name = EXCLUDED.game_name, tag_line = EXCLUDED.tag_line,
+         challenge_icon_id = EXCLUDED.challenge_icon_id, expires_at = EXCLUDED.expires_at`,
+      [req.userId, account.puuid, account.gameName, account.tagLine, challengeIconId, expiresAt],
+    );
+
+    res.json({
+      puuid: account.puuid,
+      riotId: { gameName: account.gameName, tagLine: account.tagLine },
+      challengeIconId,
+      expiresAt: expiresAt.getTime(),
+    });
+  } catch (error) {
+    respondWithRiotError(res, error);
+  }
+});
+
+app.post("/api/verify/check", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM icon_verification_challenges WHERE user_id = $1", [req.userId]);
+    const challenge = rows[0];
+    if (!challenge) return res.status(400).json({ error: "No active verification challenge — start a new one." });
+    if (new Date(challenge.expires_at).getTime() < Date.now()) {
+      await pool.query("DELETE FROM icon_verification_challenges WHERE user_id = $1", [req.userId]);
+      return res.status(400).json({ error: "That challenge expired — start a new one." });
+    }
+
+    const summoner = await getSummonerByPuuid(challenge.puuid);
+    if (summoner.profileIconId !== challenge.challenge_icon_id) {
+      return res.json({ verified: false });
+    }
+
+    await pool.query("DELETE FROM icon_verification_challenges WHERE user_id = $1", [req.userId]);
+    try {
+      await pool.query(
+        `UPDATE users SET riot_puuid = $1, riot_game_name = $2, riot_tag_line = $3, riot_verified_at = now()
+         WHERE id = $4`,
+        [challenge.puuid, challenge.game_name, challenge.tag_line, req.userId],
+      );
+    } catch (error) {
+      if (error.code === "23505") {
+        return res.status(409).json({ error: "That Riot account is already linked to a different login." });
+      }
+      throw error;
+    }
+
+    res.json({ verified: true, riotId: { gameName: challenge.game_name, tagLine: challenge.tag_line } });
+  } catch (error) {
+    respondWithRiotError(res, error);
+  }
+});
+
 // --- Reviews (our data, never Riot's) -------------------------------------
 
 // `voterKey` is the requester's own identity (puuid if signed in, otherwise
@@ -277,12 +506,19 @@ async function queryReviews(targetPuuids, voterKey) {
 // --- Routes ---------------------------------------------------------------
 
 app.get("/api/status", (_req, res) => {
-  res.json({ hasApiKey: !!RIOT_API_KEY, platform: PLATFORM, region: REGION });
+  res.json({
+    hasApiKey: !!RIOT_API_KEY,
+    platform: PLATFORM,
+    region: REGION,
+    discordAuth: authProviders.discord.configured,
+    googleAuth: authProviders.google.configured,
+  });
 });
 
-// Resolves a Riot ID to its account + puuid. Used by the frontend both for
-// the "sign in with your Riot ID" mock-auth prompt and the unverified
-// review flow (to look up a typed reviewer Riot ID for eligibility).
+// Resolves a Riot ID to its account + puuid. Used by the unverified review
+// flow (to look up a typed reviewer Riot ID for eligibility) — the signed-
+// in path resolves its own Riot ID server-side as part of icon
+// verification (see POST /api/verify/start) instead of calling this.
 app.get("/api/account/:gameName/:tagLine", async (req, res) => {
   if (!RIOT_API_KEY) return res.status(500).json({ error: "Server not configured with RIOT_API_KEY." });
   try {
@@ -407,7 +643,8 @@ app.get("/api/reviews/batch", async (req, res) => {
   if (puuids.length === 0) return res.json({});
 
   try {
-    const rows = await queryReviews(puuids, req.query.voterKey);
+    const voterKey = await resolveViewerKey(req, req.query.voterKey);
+    const rows = await queryReviews(puuids, voterKey);
     const byTarget = {};
     for (const puuid of puuids) byTarget[puuid] = [];
     for (const row of rows) {
@@ -424,7 +661,8 @@ app.get("/api/reviews/batch", async (req, res) => {
 // List reviews for one target, e.g. the profile page.
 app.get("/api/reviews/:targetPuuid", async (req, res) => {
   try {
-    const rows = await queryReviews([req.params.targetPuuid], req.query.voterKey);
+    const voterKey = await resolveViewerKey(req, req.query.voterKey);
+    const rows = await queryReviews([req.params.targetPuuid], voterKey);
     res.json(rows.map(rowToReview));
   } catch (error) {
     console.error(error);
@@ -433,26 +671,45 @@ app.get("/api/reviews/:targetPuuid", async (req, res) => {
 });
 
 app.post("/api/reviews", async (req, res) => {
-  const {
-    id,
-    targetPuuid,
-    reviewerKey,
-    reviewerKind,
-    reviewerGameName,
-    reviewerTagLine,
-    reviewerAnonymous,
-    reviewerDisplayName,
-    scores,
-    body,
-    sharedGamesWithTarget,
-  } = req.body || {};
+  const { id, targetPuuid, reviewerKind, reviewerAnonymous, reviewerDisplayName, scores, body, sharedGamesWithTarget } =
+    req.body || {};
 
   // Star ratings are optional (see db.js) — only the written body is
   // required. `scores` itself may be omitted entirely; any category left
   // out is stored as NULL.
-  if (!id || !targetPuuid || !reviewerKey || !reviewerKind || !body || !body.trim()) {
+  if (!id || !targetPuuid || !reviewerKind || !body || !body.trim()) {
     return res.status(400).json({ error: "Missing required review fields." });
   }
+
+  // The "verified" identity is never taken from the client — it's derived
+  // from the session cookie, so nobody can post as verified just by
+  // sending the right JSON. Requires both a real login *and* a completed
+  // icon-ownership challenge (riot_puuid set); logged in without that
+  // yet isn't enough. Unverified reviewers keep supplying their own
+  // per-browser cookie id, same as before — that path was never claiming
+  // real identity to begin with.
+  let reviewerKey;
+  let reviewerGameName = null;
+  let reviewerTagLine = null;
+  let anonymous = false;
+
+  if (reviewerKind === "verified") {
+    const userId = getUserIdFromRequest(req);
+    const user = userId ? await findUserById(userId) : null;
+    if (!user || !user.riot_puuid) {
+      return res.status(403).json({ error: "Sign in and complete Riot account verification before posting as verified." });
+    }
+    reviewerKey = user.riot_puuid;
+    reviewerGameName = user.riot_game_name;
+    reviewerTagLine = user.riot_tag_line;
+    anonymous = !!reviewerAnonymous;
+  } else if (reviewerKind === "unverified") {
+    reviewerKey = req.body?.reviewerKey;
+    if (!reviewerKey) return res.status(400).json({ error: "Missing reviewerKey." });
+  } else {
+    return res.status(400).json({ error: "Invalid reviewerKind." });
+  }
+
   const s = scores || {};
 
   try {
@@ -468,10 +725,10 @@ app.post("/api/reviews", async (req, res) => {
         targetPuuid,
         reviewerKey,
         reviewerKind,
-        reviewerGameName ?? null,
-        reviewerTagLine ?? null,
-        !!reviewerAnonymous,
-        reviewerDisplayName ?? null,
+        reviewerGameName,
+        reviewerTagLine,
+        anonymous,
+        reviewerKind === "unverified" ? (reviewerDisplayName ?? null) : null,
         s.mapAwareness ?? null,
         s.mechanicalSkill ?? null,
         s.teamwork ?? null,
@@ -492,7 +749,8 @@ app.post("/api/reviews", async (req, res) => {
 });
 
 app.post("/api/reviews/:id/vote", async (req, res) => {
-  const { voterKey, value } = req.body || {};
+  const { value } = req.body || {};
+  const voterKey = await resolveViewerKey(req, req.body?.voterKey);
   if (!voterKey) return res.status(400).json({ error: "Missing voterKey." });
   if (value !== 1 && value !== -1 && value !== null) {
     return res.status(400).json({ error: "value must be 1, -1, or null." });

@@ -14,44 +14,82 @@ you know who you're playing with before the match even ends.
 
 - **Player lookup** — search any `Name#Tag` and get rank, win rate, average
   KDA, top champions, and recent ranked match history, all pulled live from
-  the Riot API.
+  the Riot API. A profile you've already viewed replays from a short-lived
+  cache on refresh instead of re-hitting Riot every time (see
+  [API rate limits](#api-rate-limits)).
 - **Live game view** — while a searched player is in an active game, see
   every participant on both teams (rank, top champions, and their review
   score) sourced from spectator-v5.
-- **Peer reviews** — rate a teammate on 5 axes (map awareness, mechanical
-  skill, teamwork, communication, sportsmanship) plus a written review.
-  Reviews can be upvoted/downvoted and are limited to one per reviewer per
-  target.
-- **Verified vs. unverified reviewers** — signed-in players review with their
-  real Riot identity; anonymous visitors get a persistent per-browser id
-  instead, so review/vote de-duplication works either way.
-- **Dashboard** — signed-in users land on a dashboard showing their most
-  recent match and a one-click prompt to review each teammate from it.
-
-> **Note:** "Sign in with Riot Games" currently resolves whatever Riot ID you
-> type via the real account API rather than doing full OAuth — real Riot
-> Sign On (RSO) requires a separate approval from Riot beyond a personal API
-> key. Everything else (stats, match history, live games, reviews) is real.
+- **Peer reviews** — a written comment (up to 2000 characters) plus optional
+  1-5 star ratings across 5 axes (map awareness, mechanical skill, teamwork,
+  communication, sportsmanship) — rate whichever categories you want, or
+  none at all. Reviews can be upvoted/downvoted and are limited to one per
+  reviewer per target, and only allowed if you've played with that person
+  within the past week.
+- **Real account verification** — sign in with Discord or Google, then prove
+  you actually own the Riot account you want to review under via a
+  profile-icon ownership challenge (see
+  [Accounts & Riot verification](#accounts--riot-verification)). Reviewers
+  who skip this still get an unverified/anonymous path, identified by a
+  per-browser id instead.
+- **Dashboard** — once your Riot account is verified, land on a dashboard
+  showing your most recent match and a one-click prompt to review each
+  teammate from it.
 
 ## Tech stack
 
 - **Frontend:** React 18 + TypeScript, Vite, React Router
-- **Backend:** Express (Node, ESM), talks to the Riot API and Data Dragon
-- **Database:** PostgreSQL (`pg`) — stores reviews and votes only; player
-  stats always come live from Riot, never cached in the DB
+- **Backend:** Express (Node, ESM), talks to the Riot API, Data Dragon,
+  Discord/Google OAuth
+- **Database:** PostgreSQL (`pg`) — stores reviews, votes, and accounts;
+  player stats always come live from Riot, never cached in the DB
 - **Dev tooling:** `concurrently` to run client + server together
 
 ## Architecture
 
 ```
-Browser  --/api-->  Vite dev server (proxy)  -->  Express server.js  -->  Riot API
-                                                            |
-                                                            +-->  Postgres (reviews/votes)
+Browser  --/api-->  Vite dev server (proxy)  -->  Express server.js  -->  Riot API / Data Dragon
+                                                            |         \
+                                                            |          --> Discord / Google OAuth
+                                                            +-->  Postgres (reviews, votes, accounts)
 ```
 
 The Riot API key lives only in `server.js`'s environment — the browser never
 sees it or calls `riotgames.com` directly. In dev, Vite proxies `/api/*`
-requests to the Express server (see `vite.config.ts`).
+requests to the Express server (see `vite.config.ts`). Login uses a signed,
+httpOnly session cookie (see `auth.js`) rather than a token the frontend
+handles directly.
+
+## Accounts & Riot verification
+
+Signing in (`auth.js`, `server.js`'s `/api/auth/*` routes) is real Discord or
+Google OAuth — whichever provider(s) have client credentials configured (see
+env vars below); a provider's button only appears once it's actually set up.
+That login by itself just proves who you are on Discord/Google, though — it
+doesn't yet say anything about which Riot account is yours.
+
+To post a review as **verified**, an account also has to complete a
+**profile-icon ownership challenge** (`/api/verify/start`,
+`/api/verify/check`, `components/RiotVerifyModal`):
+
+1. Enter your Riot ID. The server resolves it and picks a random challenge
+   icon from a pool of default icons every account has unlocked, with a
+   2-minute expiration.
+2. In the League client, switch your summoner icon to the one shown.
+3. Click **Verify** — the server re-checks your current icon via
+   summoner-v4. A match permanently links that `puuid` to your logged-in
+   account (`users.riot_puuid`, unique — one Riot account can't be claimed
+   by two different logins).
+
+This replaces the old Riot Sign On (RSO) plan: RSO needs a separate approval
+from Riot beyond a personal API key, and Riot has since retired the simpler
+in-client "third-party verification code" flow this pattern used to use
+instead. `reviewerKind: "verified"` is never trusted from the client — the
+server always derives it from the session cookie plus `users.riot_puuid`
+(see `POST /api/reviews`), so there's no way to spoof a verified review
+without actually completing the challenge. Skipping sign-in/verification
+entirely still works via the unverified path (a typed Riot ID for shared-game
+eligibility, plus a self-chosen display name, deduped by a per-browser id).
 
 ## Deployment
 
@@ -65,9 +103,14 @@ Production runs on split hosting at [ratemylolmate.com](https://www.ratemylolmat
 Since frontend and backend live on separate hosts in production (unlike the
 local dev proxy in `vite.config.ts`), the frontend calls the Render API URL
 directly instead of a relative `/api/*` path — set that as an environment
-variable in the Vercel project. The Render service needs `RIOT_API_KEY`,
-`RIOT_PLATFORM`, `RIOT_REGION`, and `DATABASE_URL` configured in its
-environment, same as local `.env`.
+variable in the Vercel project (`VITE_API_URL`). The Render service needs
+every variable from `.env.example` configured in its environment, same as
+local `.env` — notably `FRONTEND_URL` set to the production Vercel URL and
+`NODE_ENV=production` (switches the session cookie to
+`SameSite=None; Secure`, required for a cross-domain cookie to survive a
+frontend-to-backend fetch at all). Discord/Google credentials and
+`SESSION_SECRET` are only needed once you want sign-in live; the rest of the
+site works without them.
 
 ## Getting started
 
@@ -91,15 +134,14 @@ environment, same as local `.env`.
    cp .env.example .env
    ```
 
-   ```
-   RIOT_API_KEY=your-riot-api-key-here
-   RIOT_PLATFORM=na1        # summoner-v4 / league-v4 / spectator-v5
-   RIOT_REGION=americas     # account-v1 / match-v5 — must match the platform (see table below)
-   DATABASE_URL=postgres://user:password@localhost:5432/lolmate
-   PORT=51791
-   ```
+   At minimum, set `RIOT_API_KEY` and `DATABASE_URL` — see `.env.example`
+   for the full list and what each one does. `DISCORD_CLIENT_ID` /
+   `GOOGLE_CLIENT_ID` (and their secrets) are optional: leave them blank and
+   everything works except sign-in, whose buttons just won't appear (see
+   [Accounts & Riot verification](#accounts--riot-verification) for how to
+   register those).
 
-   Platform → region mapping:
+   Platform → region mapping (`RIOT_PLATFORM` / `RIOT_REGION`):
 
    | Platform                      | Region     |
    | ------------------------------ | ---------- |
@@ -137,12 +179,14 @@ environment, same as local `.env`.
 ## Project structure
 
 ```
-server.js                  Express API — Riot API calls, review endpoints
+server.js                  Express API — Riot API calls, auth routes, review endpoints
+auth.js                    OAuth (Discord/Google) + signed session cookie helpers
 db.js                      Postgres connection + schema/migrations
 src/
   pages/                   LandingPage, DashboardPage, PlayerProfilePage, LiveMatchPage
-  components/               Shared UI (search bar, review form/cards, rank badge, etc.)
+  components/               Shared UI (search bar, review form/cards, sign-in/verify modals, etc.)
   lib/                      API client, Data Dragon helpers, session/local-storage helpers
+  hooks/                    useSession — fetches the current account from /api/auth/me
   types/                    Shared TypeScript types
 ```
 

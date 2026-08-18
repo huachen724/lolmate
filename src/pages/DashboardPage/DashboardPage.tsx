@@ -4,26 +4,32 @@ import { useSession } from "../../hooks/useSession";
 import { fetchProfile, fetchReviewsBatch } from "../../lib/api";
 import { ChampionAvatar } from "../../components/ChampionAvatar/ChampionAvatar";
 import { ReviewForm } from "../../components/ReviewForm/ReviewForm";
+import { RiotVerifyModal } from "../../components/RiotVerifyModal/RiotVerifyModal";
 import { LoadingState } from "../../components/Spinner/Spinner";
 import type { MatchParticipant, MatchSummary, Review, RiotId } from "../../types";
 import "./DashboardPage.css";
 
-// Home base once signed in. Real RSO wouldn't need anything more than the
-// puuid already in session; the match-v5 lookup below (via
-// GET /api/profile/:gameName/:tagLine, see server.js) is the same one a
-// profile page uses, just pointed at your own Riot ID.
+// Home base once signed in. Requires both a login (Discord/Google) *and* a
+// linked, icon-verified Riot account (session.riotPuuid) — without the
+// latter there's no known puuid to fetch "your" matches for, so that state
+// gets a CTA to complete verification instead of the normal dashboard.
 export function DashboardPage() {
   const session = useSession();
+  const [showVerify, setShowVerify] = useState(false);
   const [state, setState] = useState<
     { status: "loading" } | { status: "error"; message: string } | { status: "ready"; matches: MatchSummary[] }
   >({ status: "loading" });
   const [reviewTarget, setReviewTarget] = useState<{ puuid: string; riotId: RiotId } | null>(null);
   const [reviewsByTeammate, setReviewsByTeammate] = useState<Record<string, Review[]>>({});
 
+  const riotPuuid = session?.riotPuuid ?? null;
+  const riotGameName = session?.riotGameName ?? null;
+  const riotTagLine = session?.riotTagLine ?? null;
+
   useEffect(() => {
-    if (!session) return;
+    if (!riotPuuid || !riotGameName || !riotTagLine) return;
     let cancelled = false;
-    fetchProfile(session.riotId.gameName, session.riotId.tagLine)
+    fetchProfile(riotGameName, riotTagLine)
       .then(({ matches }) => {
         if (!cancelled) setState({ status: "ready", matches });
       })
@@ -33,12 +39,12 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [session?.puuid]);
+  }, [riotPuuid, riotGameName, riotTagLine]);
 
   const teammates: MatchParticipant[] =
     state.status === "ready" && state.matches[0]
       ? state.matches[0].participants.filter(
-          (p) => p.puuid !== session?.puuid && p.teamId === state.matches[0].participants.find((s) => s.puuid === session?.puuid)?.teamId,
+          (p) => p.puuid !== riotPuuid && p.teamId === state.matches[0].participants.find((s) => s.puuid === riotPuuid)?.teamId,
         )
       : [];
 
@@ -46,9 +52,9 @@ export function DashboardPage() {
   // state on each button reflects reality instead of assuming nobody's
   // been reviewed yet.
   useEffect(() => {
-    if (!session || teammates.length === 0) return;
+    if (!riotPuuid || teammates.length === 0) return;
     let cancelled = false;
-    fetchReviewsBatch(teammates.map((t) => t.puuid), session.puuid)
+    fetchReviewsBatch(teammates.map((t) => t.puuid), riotPuuid)
       .then((byPuuid) => {
         if (!cancelled) setReviewsByTeammate(byPuuid);
       })
@@ -60,10 +66,32 @@ export function DashboardPage() {
     };
     // teammates is derived fresh each render from `state`; comparing by the
     // match id it came from avoids re-fetching on every render.
-  }, [session?.puuid, state.status === "ready" ? state.matches[0]?.matchId : null]);
+  }, [riotPuuid, state.status === "ready" ? state.matches[0]?.matchId : null]);
 
-  if (!session) {
+  if (session === undefined) {
+    return <LoadingState message="Loading…" />;
+  }
+
+  if (session === null) {
     return <Navigate to="/" replace />;
+  }
+
+  if (!session.riotPuuid) {
+    return (
+      <div className="dashboard">
+        <h1>Welcome, {session.displayName}</h1>
+        <div className="card dashboard-verify-prompt">
+          <p className="muted">
+            Link and verify your Riot account to see your recent matches and review teammates from
+            them.
+          </p>
+          <button className="btn btn-primary" onClick={() => setShowVerify(true)}>
+            Verify Riot account
+          </button>
+        </div>
+        {showVerify && <RiotVerifyModal onClose={() => setShowVerify(false)} onVerified={() => setShowVerify(false)} />}
+      </div>
+    );
   }
 
   if (state.status === "loading") {
@@ -81,21 +109,21 @@ export function DashboardPage() {
     return (
       <div className="dashboard">
         <h1>
-          Welcome back, {session.riotId.gameName}
-          <span className="faint">#{session.riotId.tagLine}</span>
+          Welcome back, {session.riotGameName}
+          <span className="faint">#{session.riotTagLine}</span>
         </h1>
         <p className="muted">No recent ranked matches found for this account yet.</p>
       </div>
     );
   }
 
-  const self = latestMatch.participants.find((p) => p.puuid === session.puuid);
+  const self = latestMatch.participants.find((p) => p.puuid === riotPuuid);
 
   return (
     <div className="dashboard">
       <h1>
-        Welcome back, {session.riotId.gameName}
-        <span className="faint">#{session.riotId.tagLine}</span>
+        Welcome back, {session.riotGameName}
+        <span className="faint">#{session.riotTagLine}</span>
       </h1>
 
       <section className="card dashboard-recent-match">
@@ -108,8 +136,8 @@ export function DashboardPage() {
 
         <p className="muted">
           Played with {teammates.length} teammate{teammates.length === 1 ? "" : "s"}. Leave them a
-          review while it's fresh — reviews are only allowed once you've shared enough games with
-          someone.
+          review while it's fresh — reviews are only allowed if you've played with them in the past
+          week.
         </p>
 
         <div className="dashboard-teammates">

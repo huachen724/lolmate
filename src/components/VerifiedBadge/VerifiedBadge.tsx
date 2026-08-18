@@ -1,9 +1,11 @@
 import "./VerifiedBadge.css";
 
-// Shown next to a reviewer's name when they posted through Riot Sign On
-// (RSO), instead of just typing an unverified display name. We trust this
-// because the puuid on the review came from an OAuth-backed session, not
-// user input — see src/lib/session.ts for the (mocked) sign-in flow.
+// Shown next to a reviewer's name when they posted as a verified account —
+// logged in via Discord/Google *and* proven to own the Riot account behind
+// the review via the profile-icon challenge (see RiotVerifyModal) — rather
+// than just typing an unverified display name. The puuid on the review is
+// derived server-side from the session cookie, never trusted from the
+// client (see server.js's POST /api/reviews).
 export function VerifiedBadge({ size = "sm" }: { size?: "sm" | "md" }) {
   return (
     <span className={`verified-badge verified-badge-${size}`} title="Verified Riot Games account">

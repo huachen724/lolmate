@@ -33,7 +33,7 @@ export function ReviewCard({ review }: { review: Review }) {
   // use. Optimistic update with rollback if the request fails.
   function vote(next: VoteValue) {
     const resolved = myVote === next ? null : next;
-    const voterKey = session ? session.puuid : getOrCreateUnverifiedReviewerId();
+    const voterKey = session?.riotPuuid ? session.riotPuuid : getOrCreateUnverifiedReviewerId();
 
     const prevUp = upvotes;
     const prevDown = downvotes;

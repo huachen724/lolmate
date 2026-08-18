@@ -37,11 +37,11 @@ export function LandingPage() {
         </div>
 
         <button className="btn btn-primary landing-signin" onClick={() => setShowSignIn(true)}>
-          Sign in with Riot Games
+          Sign in
         </button>
         <p className="faint">
-          Signing in lets you review teammates from your own match history and skip typing a Riot
-          ID every time.
+          Signing in with Discord or Google lets you review teammates from your own match history
+          — once you've verified you actually own the Riot account you're posting under.
         </p>
       </section>
 
@@ -73,9 +73,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      {showSignIn && (
-        <SignInModal onClose={() => setShowSignIn(false)} onSignedIn={() => setShowSignIn(false)} />
-      )}
+      {showSignIn && <SignInModal onClose={() => setShowSignIn(false)} />}
     </div>
   );
 }
