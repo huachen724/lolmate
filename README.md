@@ -74,12 +74,15 @@ To post a review as **verified**, an account also has to complete a
 
 1. Enter your Riot ID. The server resolves it and picks a random challenge
    icon from a pool of default icons every account has unlocked, with a
-   2-minute expiration.
+   10-minute expiration — summoner-v4 (where the check reads the current
+   icon from) can lag a few minutes behind an in-client change, so the
+   window needs enough slack for that to catch up.
 2. In the League client, switch your summoner icon to the one shown.
 3. Click **Verify** — the server re-checks your current icon via
    summoner-v4. A match permanently links that `puuid` to your logged-in
    account (`users.riot_puuid`, unique — one Riot account can't be claimed
-   by two different logins).
+   by two different logins). If it doesn't match yet, just wait a bit and
+   click **Verify** again — the same challenge stays valid until it expires.
 
 This replaces the old Riot Sign On (RSO) plan: RSO needs a separate approval
 from Riot beyond a personal API key, and Riot has since retired the simpler

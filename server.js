@@ -45,7 +45,15 @@ const MAX_CONCURRENT_RIOT_CALLS = 5;
 // couple of real accounts (ideally a low-level/newer one) before fully
 // relying on this in production — swap anything that turns out gated.
 const ICON_CHALLENGE_POOL = Array.from({ length: 29 }, (_, i) => i);
-const ICON_CHALLENGE_WINDOW_MS = 2 * 60 * 1000;
+// Riot's summoner-v4 endpoint (which profileIconId comes from) can lag
+// several minutes behind an in-client icon change — the client updates
+// its own display instantly, but the API reads from a backend store that
+// syncs asynchronously. A 2-minute window (the original spec) turned out
+// too tight in practice: real verification attempts were failing with a
+// stable, non-matching icon that only later caught up to the actual
+// client-side change. 10 minutes gives that lag room without leaving the
+// challenge open indefinitely.
+const ICON_CHALLENGE_WINDOW_MS = 10 * 60 * 1000;
 
 if (!RIOT_API_KEY) {
   console.error("Missing RIOT_API_KEY in environment.");
