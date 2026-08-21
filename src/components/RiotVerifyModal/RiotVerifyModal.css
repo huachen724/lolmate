@@ -14,6 +14,14 @@
   margin: 0;
 }
 
+.riot-verify-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 .riot-verify-icon {
   width: 72px;
   height: 72px;

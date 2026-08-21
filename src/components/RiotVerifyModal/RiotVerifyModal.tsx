@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, checkIconVerification, startIconVerification } from "../../lib/api";
 import type { VerificationChallenge } from "../../lib/api";
 import { profileIconUrl, useDdragonVersion } from "../../lib/ddragon";
@@ -12,12 +12,16 @@ interface RiotVerifyModalProps {
   onVerified: () => void;
 }
 
+// How often we re-check in the background once a challenge is active.
+// Riot's summoner-v4 (where the check reads profileIconId from) can lag
+// well behind an in-client icon change, so this polls quietly instead of
+// making the user manually re-click Verify over and over.
+const POLL_INTERVAL_MS = 15 * 1000;
+
 type State =
   | { status: "idle" }
   | { status: "starting" }
-  | { status: "challenge"; challenge: VerificationChallenge }
-  | { status: "checking"; challenge: VerificationChallenge }
-  | { status: "mismatch"; challenge: VerificationChallenge }
+  | { status: "polling"; challenge: VerificationChallenge; lastCheckedAt: number | null }
   | { status: "expired" }
   | { status: "error"; message: string };
 
@@ -33,18 +37,57 @@ export function RiotVerifyModal({ onClose, onVerified }: RiotVerifyModalProps) {
   const [riotIdInput, setRiotIdInput] = useState("");
   const [state, setState] = useState<State>({ status: "idle" });
   const [now, setNow] = useState(() => Date.now());
+  const [manualChecking, setManualChecking] = useState(false);
+
+  // onVerified is typically a fresh arrow function from the parent on every
+  // render — keeping it out of the polling effect's dependencies (via this
+  // ref) avoids tearing down and restarting the interval on unrelated
+  // parent re-renders.
+  const onVerifiedRef = useRef(onVerified);
+  useEffect(() => {
+    onVerifiedRef.current = onVerified;
+  }, [onVerified]);
 
   useEffect(() => {
-    if (state.status !== "challenge" && state.status !== "mismatch") return;
+    if (state.status !== "polling") return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [state.status]);
 
   useEffect(() => {
-    if ((state.status === "challenge" || state.status === "mismatch") && now >= state.challenge.expiresAt) {
+    if (state.status === "polling" && now >= state.challenge.expiresAt) {
       setState({ status: "expired" });
     }
   }, [now, state]);
+
+  // Stable across renders (empty deps + refs/functional setState only), so
+  // it's safe for the polling effect below to depend on without that
+  // effect needing to restart every render.
+  const checkOnce = useCallback(async () => {
+    try {
+      const result = await checkIconVerification();
+      if (result.verified) {
+        notifySessionChanged();
+        onVerifiedRef.current();
+        return;
+      }
+      setState((s) => (s.status === "polling" ? { ...s, lastCheckedAt: Date.now() } : s));
+    } catch (error) {
+      setState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Verification check failed.",
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (state.status !== "polling") return;
+    const id = setInterval(() => void checkOnce(), POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+    // Keyed on expiresAt (unique per generated challenge) rather than the
+    // whole challenge object, which would otherwise change identity (and
+    // restart this interval) every time lastCheckedAt updates.
+  }, [state.status === "polling" ? state.challenge.expiresAt : null, checkOnce]);
 
   async function handleStart(event: React.FormEvent) {
     event.preventDefault();
@@ -62,7 +105,7 @@ export function RiotVerifyModal({ onClose, onVerified }: RiotVerifyModalProps) {
     setState({ status: "starting" });
     try {
       const challenge = await startIconVerification(gameName, tagLine);
-      setState({ status: "challenge", challenge });
+      setState({ status: "polling", challenge, lastCheckedAt: null });
     } catch (error) {
       setState({
         status: "error",
@@ -76,24 +119,11 @@ export function RiotVerifyModal({ onClose, onVerified }: RiotVerifyModalProps) {
     }
   }
 
-  async function handleCheck() {
-    if (state.status !== "challenge" && state.status !== "mismatch") return;
-    const { challenge } = state;
-    setState({ status: "checking", challenge });
-    try {
-      const result = await checkIconVerification();
-      if (result.verified) {
-        notifySessionChanged();
-        onVerified();
-      } else {
-        setState({ status: "mismatch", challenge });
-      }
-    } catch (error) {
-      setState({
-        status: "error",
-        message: error instanceof Error ? error.message : "Verification check failed.",
-      });
-    }
+  async function handleCheckNow() {
+    if (manualChecking) return;
+    setManualChecking(true);
+    await checkOnce();
+    setManualChecking(false);
   }
 
   return (
@@ -102,8 +132,7 @@ export function RiotVerifyModal({ onClose, onVerified }: RiotVerifyModalProps) {
         <h2>Verify your Riot account</h2>
         <p className="muted">
           Riot retired the old in-client verification code, so this proves you own the account the
-          way most third-party sites do now: briefly switch your summoner icon to one we pick, then
-          switch it back once you're done.
+          way most third-party sites do now: briefly switch your summoner icon to one we pick.
         </p>
 
         {(state.status === "idle" || state.status === "starting" || state.status === "error") && (
@@ -127,34 +156,37 @@ export function RiotVerifyModal({ onClose, onVerified }: RiotVerifyModalProps) {
           </form>
         )}
 
-        {(state.status === "challenge" || state.status === "checking" || state.status === "mismatch") && (
+        {state.status === "polling" && (
           <div className="riot-verify-challenge">
             <img
               className="riot-verify-icon"
               alt={`Challenge icon ${state.challenge.challengeIconId}`}
               src={profileIconUrl(state.challenge.challengeIconId, ddragonVersion)}
             />
-            <p>
-              In the League client, set your summoner icon to the one shown above, then come back and
-              click Verify.
+            <p>In the League client, set your summoner icon to the one shown above.</p>
+            <p className="faint">
+              We're checking automatically every 15 seconds — you don't need to click anything.
+              <br />
+              Once you've set it, please don't change it again until this finishes.
             </p>
+            <div className="riot-verify-status">
+              <Spinner size={12} />
+              {state.lastCheckedAt
+                ? `Waiting for Riot to catch up — last checked ${Math.max(0, Math.round((now - state.lastCheckedAt) / 1000))}s ago.`
+                : "Waiting for your icon change…"}
+            </div>
             <p className="faint">Expires in {Math.max(0, Math.ceil((state.challenge.expiresAt - now) / 1000))}s</p>
-            {state.status === "mismatch" && (
-              <p className="sign-in-modal-error">
-                That doesn't match yet — make sure the icon change saved in-client, then try again.
-              </p>
-            )}
             <div className="sign-in-modal-actions">
               <button type="button" className="btn btn-ghost" onClick={onClose}>
                 Cancel
               </button>
-              <button type="button" className="btn btn-primary" onClick={handleCheck} disabled={state.status === "checking"}>
-                {state.status === "checking" ? (
+              <button type="button" className="btn btn-primary" onClick={handleCheckNow} disabled={manualChecking}>
+                {manualChecking ? (
                   <>
                     <Spinner size={14} /> Checking…
                   </>
                 ) : (
-                  "Verify"
+                  "Check now"
                 )}
               </button>
             </div>
