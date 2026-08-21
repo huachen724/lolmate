@@ -395,6 +395,22 @@ app.post("/api/verify/start", requireAuth, async (req, res) => {
 
   try {
     const account = await getAccountByRiotId(gameName, tagLine);
+
+    // Check upfront whether this Riot account is already claimed —
+    // otherwise someone would go through the entire icon-switching flow
+    // only to be rejected at the very end (see the UNIQUE constraint on
+    // users.riot_puuid, enforced again below as a backstop against races).
+    const { rows: existingRows } = await pool.query("SELECT id FROM users WHERE riot_puuid = $1", [account.puuid]);
+    const existingOwner = existingRows[0];
+    if (existingOwner) {
+      return res.status(409).json({
+        error:
+          existingOwner.id === req.userId
+            ? "You've already verified this Riot account."
+            : "This Riot account is already verified and linked to a different login.",
+      });
+    }
+
     const summoner = await getSummonerByPuuid(account.puuid);
     // Exclude their current icon so the challenge always requires an
     // actual change — otherwise a bystander who happens to already have
