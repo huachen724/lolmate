@@ -427,6 +427,12 @@ app.post("/api/verify/check", requireAuth, async (req, res) => {
 
     const summoner = await getSummonerByPuuid(challenge.puuid);
     if (summoner.profileIconId !== challenge.challenge_icon_id) {
+      // Temporary diagnostic — remove once icon verification is confirmed
+      // reliable in production. Not sensitive: puuid is already the
+      // reviewer's own public identity, and icon ids are just integers.
+      console.log(
+        `[VERIFY] Icon mismatch for user ${req.userId} (puuid ${challenge.puuid}): expected ${challenge.challenge_icon_id} (${typeof challenge.challenge_icon_id}), got ${summoner.profileIconId} (${typeof summoner.profileIconId})`,
+      );
       return res.json({ verified: false });
     }
 
