@@ -71,9 +71,15 @@ export function ReviewForm({
   const [anonymous, setAnonymous] = useState(
     existingReview?.reviewer.kind === "verified" ? existingReview.reviewer.anonymous : false,
   );
-  const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" } | { status: "error"; message: string }>(
-    { status: "idle" },
-  );
+  const [submitState, setSubmitState] = useState<
+    | { status: "idle" | "submitting" }
+    | { status: "error"; message: string }
+    // The submission replaced an existing unverified review that claimed
+    // to be this (now verified) reviewer — see server.js's POST
+    // /api/reviews override path. Held here for one extra step so the
+    // reviewer sees why, rather than the form just closing silently.
+    | { status: "override-notice"; review: Review }
+  >({ status: "idle" });
 
   // Unverified path: someone without a verified Riot account behind their
   // session (not logged in at all, or logged in but hasn't completed the
@@ -201,7 +207,10 @@ export function ReviewForm({
         // reviewerKey/gameName/tagLine for the verified path are derived
         // server-side from the session cookie (see server.js's POST
         // /api/reviews) — never trusted from here — so only the unverified
-        // path needs to send its own identity.
+        // path needs to send its own identity. reviewerClaimedPuuid is the
+        // same puuid already resolved above for the eligibility check —
+        // sending it lets a later-verified real account holder reclaim
+        // this review if it turns out to be impersonating them.
         const review = await submitReview({
           id: `rev-${crypto.randomUUID()}`,
           targetPuuid: target.puuid,
@@ -209,23 +218,55 @@ export function ReviewForm({
           reviewerKey: verifiedIdentity ? undefined : getOrCreateUnverifiedReviewerId(),
           reviewerAnonymous: verifiedIdentity ? anonymous : undefined,
           reviewerDisplayName: verifiedIdentity ? undefined : displayName.trim(),
+          reviewerClaimedPuuid: verifiedIdentity ? undefined : (reviewerPuuid ?? undefined),
           scores: submittedScores,
           body: body.trim(),
           sharedGamesWithTarget: sharedGames,
         });
-        onSubmit(review);
+        if (review.overrodeExistingReview) {
+          setSubmitState({ status: "override-notice", review });
+        } else {
+          onSubmit(review);
+        }
       }
     } catch (error) {
+      // The server's error messages are already specific and user-facing
+      // (see server.js's POST/PUT /api/reviews) — for 409s in particular,
+      // which one it is now depends on the situation ("edit instead" vs.
+      // a claimed-identity conflict), so no local override here.
       setSubmitState({
         status: "error",
-        message:
-          error instanceof ApiError && error.status === 409
-            ? "You've already reviewed this player."
-            : error instanceof Error
-              ? error.message
-              : "Something went wrong submitting your review.",
+        message: error instanceof Error ? error.message : "Something went wrong submitting your review.",
       });
     }
+  }
+
+  if (submitState.status === "override-notice") {
+    return (
+      <div className="review-form-overlay" onClick={onClose}>
+        <div className="review-form card" onClick={(e) => e.stopPropagation()}>
+          <header className="review-form-header">
+            <h2>Review posted</h2>
+          </header>
+          <p className="review-form-override-notice">
+            This replaced an existing unverified review of {target.riotId.gameName} that claimed to be
+            you — possibly posted by someone else typing your Riot ID. Your verified review is now the
+            one shown.
+          </p>
+          <div className="review-form-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                onSubmit(submitState.review);
+              }}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

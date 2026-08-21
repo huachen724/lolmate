@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS reviews (
   reviewer_tag_line text,
   reviewer_anonymous boolean NOT NULL DEFAULT false,
   reviewer_display_name text,
+  -- The puuid an unverified reviewer *claimed* via the Riot ID they typed
+  -- for eligibility — never proven, but tracked so a later-verified real
+  -- account holder can reclaim/override a review impersonating them (see
+  -- POST /api/reviews's override path). NULL for verified reviews.
+  reviewer_claimed_puuid text,
   map_awareness smallint CHECK (map_awareness BETWEEN 1 AND 5),
   mechanical_skill smallint CHECK (mechanical_skill BETWEEN 1 AND 5),
   teamwork smallint CHECK (teamwork BETWEEN 1 AND 5),
@@ -137,6 +142,20 @@ ALTER TABLE reviews ALTER COLUMN communication DROP NOT NULL;
 ALTER TABLE reviews ALTER COLUMN sportsmanship DROP NOT NULL;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS edited_at timestamptz;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS reviewer_claimed_puuid text;
+
+-- Stops the same claimed identity from posting more than one unverified
+-- review of a given target — closes the "clear localStorage, review again"
+-- loophole without requiring full verification. Partial (only applies to
+-- non-deleted unverified rows) so it never blocks a verified review, and a
+-- soft-deleted row frees up its claimed identity for a fresh one. Lives in
+-- this migrations block (not SCHEMA's CREATE TABLE) specifically so it
+-- always runs after the ADD COLUMN above — on the already-deployed table,
+-- SCHEMA's CREATE TABLE is skipped entirely (table exists), so this column
+-- doesn't exist until this migration adds it first.
+CREATE UNIQUE INDEX IF NOT EXISTS reviews_unverified_claimed_puuid_idx
+  ON reviews (target_puuid, reviewer_claimed_puuid)
+  WHERE reviewer_kind = 'unverified' AND deleted_at IS NULL;
 `;
 
 export async function runMigrations() {

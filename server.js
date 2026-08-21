@@ -751,9 +751,27 @@ app.get("/api/reviews/:targetPuuid", async (req, res) => {
   }
 });
 
+// A verified reviewer never has to wait out this cooldown (they've already
+// cleared a much higher bar: real OAuth login + proven Riot ownership).
+// This exists specifically for the unverified path, where the only cost of
+// spamming many different targets is knowing (or scraping, since teammate
+// names are public) a real Riot ID from each match — the claimed-puuid
+// system below stops re-claiming *one* identity, but says nothing about
+// submission volume.
+const UNVERIFIED_SUBMIT_COOLDOWN_MS = 2 * 60 * 1000;
+
 app.post("/api/reviews", async (req, res) => {
-  const { id, targetPuuid, reviewerKind, reviewerAnonymous, reviewerDisplayName, scores, body, sharedGamesWithTarget } =
-    req.body || {};
+  const {
+    id,
+    targetPuuid,
+    reviewerKind,
+    reviewerAnonymous,
+    reviewerDisplayName,
+    reviewerClaimedPuuid,
+    scores,
+    body,
+    sharedGamesWithTarget,
+  } = req.body || {};
 
   // Star ratings are optional (see db.js) — only the written body is
   // required. `scores` itself may be omitted entirely; any category left
@@ -773,6 +791,7 @@ app.post("/api/reviews", async (req, res) => {
   let reviewerGameName = null;
   let reviewerTagLine = null;
   let anonymous = false;
+  let claimedPuuid = null;
 
   if (reviewerKind === "verified") {
     const userId = getUserIdFromRequest(req);
@@ -787,6 +806,7 @@ app.post("/api/reviews", async (req, res) => {
   } else if (reviewerKind === "unverified") {
     reviewerKey = req.body?.reviewerKey;
     if (!reviewerKey) return res.status(400).json({ error: "Missing reviewerKey." });
+    claimedPuuid = reviewerClaimedPuuid || null;
   } else {
     return res.status(400).json({ error: "Invalid reviewerKind." });
   }
@@ -794,12 +814,90 @@ app.post("/api/reviews", async (req, res) => {
   const s = scores || {};
 
   try {
+    // Own prior review of this target already exists (whether from before
+    // or via a fresh identity) — editing is the path for that now, not a
+    // second row. Checked explicitly (rather than just letting the unique
+    // constraint 23505) so the error message can point at the right fix.
+    const { rows: ownRows } = await pool.query(
+      "SELECT id FROM reviews WHERE target_puuid = $1 AND reviewer_key = $2 AND deleted_at IS NULL",
+      [targetPuuid, reviewerKey],
+    );
+    if (ownRows[0]) {
+      return res.status(409).json({ error: "You've already reviewed this player — edit your existing review instead." });
+    }
+
+    // Impersonation-correction path: a verified reviewer's real identity
+    // matches what an existing *unverified* review of this same target
+    // claimed to be — very possibly someone else typing their Riot ID to
+    // pass the eligibility check. The real owner's submission replaces it
+    // in place (content + authorship), keeping the row's id/votes/
+    // created_at, rather than existing alongside a fraudulent duplicate.
+    if (reviewerKind === "verified") {
+      const { rows: claimRows } = await pool.query(
+        `SELECT * FROM reviews
+         WHERE target_puuid = $1 AND reviewer_kind = 'unverified' AND reviewer_claimed_puuid = $2 AND deleted_at IS NULL`,
+        [targetPuuid, reviewerKey],
+      );
+      const claimed = claimRows[0];
+      if (claimed) {
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          await archiveReviewVersion(client, claimed);
+          const { rows } = await client.query(
+            `UPDATE reviews SET
+               reviewer_kind = 'verified', reviewer_key = $1, reviewer_game_name = $2, reviewer_tag_line = $3,
+               reviewer_anonymous = $4, reviewer_display_name = NULL, reviewer_claimed_puuid = NULL,
+               body = $5, map_awareness = $6, mechanical_skill = $7, teamwork = $8, communication = $9,
+               sportsmanship = $10, shared_games_with_target = $11, edited_at = now()
+             WHERE id = $12
+             RETURNING *`,
+            [
+              reviewerKey,
+              reviewerGameName,
+              reviewerTagLine,
+              anonymous,
+              body,
+              s.mapAwareness ?? null,
+              s.mechanicalSkill ?? null,
+              s.teamwork ?? null,
+              s.communication ?? null,
+              s.sportsmanship ?? null,
+              sharedGamesWithTarget ?? 0,
+              claimed.id,
+            ],
+          );
+          await client.query("COMMIT");
+          return res.status(200).json({
+            ...rowToReview({ ...rows[0], upvotes: 0, downvotes: 0, my_vote: null, is_mine: true }),
+            overrodeExistingReview: true,
+          });
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        } finally {
+          client.release();
+        }
+      }
+    }
+
+    if (reviewerKind === "unverified") {
+      const { rows: recentRows } = await pool.query(
+        "SELECT created_at FROM reviews WHERE reviewer_key = $1 ORDER BY created_at DESC LIMIT 1",
+        [reviewerKey],
+      );
+      const last = recentRows[0];
+      if (last && Date.now() - new Date(last.created_at).getTime() < UNVERIFIED_SUBMIT_COOLDOWN_MS) {
+        return res.status(429).json({ error: "You're submitting reviews too quickly — please wait a bit and try again." });
+      }
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO reviews (
          id, target_puuid, reviewer_key, reviewer_kind, reviewer_game_name, reviewer_tag_line,
-         reviewer_anonymous, reviewer_display_name, map_awareness, mechanical_skill, teamwork,
-         communication, sportsmanship, body, shared_games_with_target
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         reviewer_anonymous, reviewer_display_name, reviewer_claimed_puuid, map_awareness, mechanical_skill,
+         teamwork, communication, sportsmanship, body, shared_games_with_target
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING *`,
       [
         id,
@@ -810,6 +908,7 @@ app.post("/api/reviews", async (req, res) => {
         reviewerTagLine,
         anonymous,
         reviewerKind === "unverified" ? (reviewerDisplayName ?? null) : null,
+        claimedPuuid,
         s.mapAwareness ?? null,
         s.mechanicalSkill ?? null,
         s.teamwork ?? null,
@@ -822,7 +921,12 @@ app.post("/api/reviews", async (req, res) => {
     res.status(201).json(rowToReview({ ...rows[0], upvotes: 0, downvotes: 0, my_vote: null, is_mine: true }));
   } catch (error) {
     if (error.code === "23505") {
-      return res.status(409).json({ error: "You've already reviewed this player." });
+      return res.status(409).json({
+        error:
+          error.constraint === "reviews_unverified_claimed_puuid_idx"
+            ? "Someone claiming this same Riot ID has already reviewed this player."
+            : "You've already reviewed this player.",
+      });
     }
     console.error(error);
     res.status(500).json({ error: "Failed to save review." });

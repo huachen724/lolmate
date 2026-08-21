@@ -102,12 +102,20 @@ export interface NewReviewPayload {
   reviewerKey?: string;
   reviewerAnonymous?: boolean;
   reviewerDisplayName?: string;
+  // Unverified path only — the puuid resolved from the Riot ID typed for
+  // eligibility, tracked server-side so a later-verified real account
+  // holder can reclaim/override a review impersonating them.
+  reviewerClaimedPuuid?: string;
   scores: ReviewScores;
   body: string;
   sharedGamesWithTarget: number;
 }
 
-export function submitReview(payload: NewReviewPayload): Promise<Review> {
+// `overrodeExistingReview` is set when this submission replaced an
+// existing unverified review of the same target that claimed to be this
+// (now verified) reviewer's exact Riot account — see server.js's POST
+// /api/reviews override path.
+export function submitReview(payload: NewReviewPayload): Promise<Review & { overrodeExistingReview?: boolean }> {
   return postJson("/api/reviews", payload);
 }
 
