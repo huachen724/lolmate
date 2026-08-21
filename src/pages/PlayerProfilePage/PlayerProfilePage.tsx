@@ -33,7 +33,9 @@ export function PlayerProfilePage() {
     | { status: "ready"; profile: SummonerProfile; matches: MatchSummary[]; isLive: boolean; fetchedAt: number }
   >({ status: "loading" });
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [reviewForm, setReviewForm] = useState<{ mode: "closed" } | { mode: "create" } | { mode: "edit"; review: Review }>(
+    { mode: "closed" },
+  );
   // Bumping this re-runs the fetch effect below (retry-after-error and the
   // manual refresh button both use it). `forceRefetchRef` is what actually
   // tells that effect to skip the cache for this one run — a plain nonce
@@ -177,7 +179,7 @@ export function PlayerProfilePage() {
         </div>
         <RankBadge rank={profile.soloRank} />
         {!isSelf && (
-          <button className="btn btn-primary" onClick={() => setShowReviewForm(true)}>
+          <button className="btn btn-primary" onClick={() => setReviewForm({ mode: "create" })}>
             Write a review
           </button>
         )}
@@ -235,21 +237,27 @@ export function PlayerProfilePage() {
               key={r.id}
               review={r}
               onDeleted={(id) => setReviews((prev) => prev.filter((review) => review.id !== id))}
+              onEdit={(review) => setReviewForm({ mode: "edit", review })}
             />
           ))}
         </div>
       </section>
 
-      {showReviewForm && (
+      {reviewForm.mode !== "closed" && (
         <ReviewForm
           target={profile}
           targetMatches={matches}
           alreadyReviewed={reviews.some((r) => r.isMine)}
           session={session ?? null}
-          onClose={() => setShowReviewForm(false)}
+          existingReview={reviewForm.mode === "edit" ? reviewForm.review : undefined}
+          onClose={() => setReviewForm({ mode: "closed" })}
           onSubmit={(review) => {
             setReviews((prev) => [review, ...prev]);
-            setShowReviewForm(false);
+            setReviewForm({ mode: "closed" });
+          }}
+          onUpdated={(review) => {
+            setReviews((prev) => prev.map((r) => (r.id === review.id ? review : r)));
+            setReviewForm({ mode: "closed" });
           }}
         />
       )}

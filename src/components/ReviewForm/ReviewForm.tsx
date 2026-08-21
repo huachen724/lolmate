@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { REVIEW_CATEGORIES } from "../../types";
 import type { AuthUser, MatchSummary, Review, ReviewCategory, ReviewScores, RiotId } from "../../types";
 import { REVIEW_BODY_MAX_LENGTH, REVIEW_ELIGIBILITY_WINDOW_MS } from "../../lib/constants";
-import { ApiError, fetchAccount, submitReview } from "../../lib/api";
+import { ApiError, fetchAccount, submitReview, updateReview } from "../../lib/api";
 import { countSharedGames, mostRecentSharedGameTimestamp } from "../../lib/reviewStats";
 import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
 import { timeAgo } from "../../lib/time";
@@ -17,15 +17,22 @@ interface ReviewFormProps {
   targetMatches: MatchSummary[];
   // Whether the current viewer has already reviewed this target — computed
   // by the caller from a review list already fetched with `isMine` set
-  // (see server.js's rowToReview), rather than re-fetched here.
+  // (see server.js's rowToReview), rather than re-fetched here. Irrelevant
+  // (and ignored) when `existingReview` is set — that's precisely the case
+  // of editing the one review you're "already" credited with.
   alreadyReviewed: boolean;
   // Logged in (Discord/Google) does not by itself mean "post as verified"
   // — only a session with riotPuuid set (icon verification completed) can.
   // A login without that falls back to the same unverified flow as a
   // signed-out visitor (see `verifiedIdentity` below).
   session: AuthUser | null;
+  // Present when editing your own review instead of writing a new one —
+  // pre-fills the form and calls PUT /api/reviews/:id (via onUpdated)
+  // instead of POST (via onSubmit) on save.
+  existingReview?: Review;
   onClose: () => void;
   onSubmit: (review: Review) => void;
+  onUpdated?: (review: Review) => void;
 }
 
 // Local editing state: 0 means "no stars clicked yet" (RatingStars' unrated
@@ -41,10 +48,29 @@ const emptyScores: DraftScores = {
   sportsmanship: 0,
 };
 
-export function ReviewForm({ target, targetMatches, alreadyReviewed, session, onClose, onSubmit }: ReviewFormProps) {
-  const [scores, setScores] = useState<DraftScores>(emptyScores);
-  const [body, setBody] = useState("");
-  const [anonymous, setAnonymous] = useState(false);
+export function ReviewForm({
+  target,
+  targetMatches,
+  alreadyReviewed,
+  session,
+  existingReview,
+  onClose,
+  onSubmit,
+  onUpdated,
+}: ReviewFormProps) {
+  const isEditing = !!existingReview;
+  const [scores, setScores] = useState<DraftScores>(() =>
+    existingReview
+      ? REVIEW_CATEGORIES.reduce((acc, c) => {
+          acc[c.key] = existingReview.scores[c.key] ?? 0;
+          return acc;
+        }, {} as DraftScores)
+      : emptyScores,
+  );
+  const [body, setBody] = useState(existingReview?.body ?? "");
+  const [anonymous, setAnonymous] = useState(
+    existingReview?.reviewer.kind === "verified" ? existingReview.reviewer.anonymous : false,
+  );
   const [submitState, setSubmitState] = useState<{ status: "idle" | "submitting" } | { status: "error"; message: string }>(
     { status: "idle" },
   );
@@ -59,7 +85,9 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
   // separate, self-chosen displayName below, which is what makes them
   // "unverified" rather than just a second verified flow.
   const [reviewerRiotIdInput, setReviewerRiotIdInput] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState(
+    existingReview?.reviewer.kind === "unverified" ? existingReview.reviewer.displayName : "",
+  );
   const [lookupState, setLookupState] = useState<
     | { status: "idle" }
     | { status: "loading" }
@@ -129,7 +157,7 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
 
   const isEligible = lastSharedGameAt !== null && Date.now() - lastSharedGameAt <= REVIEW_ELIGIBILITY_WINDOW_MS;
   const canSubmit =
-    !alreadyReviewed &&
+    (isEditing || !alreadyReviewed) &&
     isEligible &&
     body.trim().length > 0 &&
     submitState.status !== "submitting" &&
@@ -156,22 +184,37 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
         return acc;
       }, {} as ReviewScores);
 
-      // reviewerKey/gameName/tagLine for the verified path are derived
-      // server-side from the session cookie (see server.js's POST
-      // /api/reviews) — never trusted from here — so only the unverified
-      // path needs to send its own identity.
-      const review = await submitReview({
-        id: `rev-${crypto.randomUUID()}`,
-        targetPuuid: target.puuid,
-        reviewerKind: verifiedIdentity ? "verified" : "unverified",
-        reviewerKey: verifiedIdentity ? undefined : getOrCreateUnverifiedReviewerId(),
-        reviewerAnonymous: verifiedIdentity ? anonymous : undefined,
-        reviewerDisplayName: verifiedIdentity ? undefined : displayName.trim(),
-        scores: submittedScores,
-        body: body.trim(),
-        sharedGamesWithTarget: sharedGames,
-      });
-      onSubmit(review);
+      if (isEditing && existingReview) {
+        // Identity/authorship doesn't change on a plain edit — only
+        // content and the fresh shared-games snapshot do. reviewerKey is
+        // still needed for ownership checks on the unverified path (the
+        // server re-derives verified ownership from the session cookie).
+        const updated = await updateReview(existingReview.id, {
+          reviewerKey: verifiedIdentity ? undefined : getOrCreateUnverifiedReviewerId(),
+          reviewerAnonymous: verifiedIdentity ? anonymous : undefined,
+          scores: submittedScores,
+          body: body.trim(),
+          sharedGamesWithTarget: sharedGames,
+        });
+        onUpdated?.(updated);
+      } else {
+        // reviewerKey/gameName/tagLine for the verified path are derived
+        // server-side from the session cookie (see server.js's POST
+        // /api/reviews) — never trusted from here — so only the unverified
+        // path needs to send its own identity.
+        const review = await submitReview({
+          id: `rev-${crypto.randomUUID()}`,
+          targetPuuid: target.puuid,
+          reviewerKind: verifiedIdentity ? "verified" : "unverified",
+          reviewerKey: verifiedIdentity ? undefined : getOrCreateUnverifiedReviewerId(),
+          reviewerAnonymous: verifiedIdentity ? anonymous : undefined,
+          reviewerDisplayName: verifiedIdentity ? undefined : displayName.trim(),
+          scores: submittedScores,
+          body: body.trim(),
+          sharedGamesWithTarget: sharedGames,
+        });
+        onSubmit(review);
+      }
     } catch (error) {
       setSubmitState({
         status: "error",
@@ -190,7 +233,7 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
       <div className="review-form card" onClick={(e) => e.stopPropagation()}>
         <header className="review-form-header">
           <h2>
-            Review {target.riotId.gameName}
+            {isEditing ? "Edit review of" : "Review"} {target.riotId.gameName}
             <span className="faint">#{target.riotId.tagLine}</span>
           </h2>
           <button className="btn btn-ghost review-form-close" onClick={onClose} aria-label="Close">
@@ -198,7 +241,7 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
           </button>
         </header>
 
-        {alreadyReviewed ? (
+        {alreadyReviewed && !isEditing ? (
           <p className="review-form-blocked">
             You've already reviewed this player from this browser. Multiple reviews of the same
             player from one reviewer aren't allowed.
@@ -217,6 +260,12 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
               </div>
             ) : (
               <div className="review-form-identity review-form-identity-unverified">
+                {isEditing && (
+                  <p className="faint review-form-hint">
+                    Re-enter your Riot ID to refresh the "games together" count for this edit — we
+                    don't store it between visits.
+                  </p>
+                )}
                 <label className="review-form-field">
                   Your Riot ID (verifies you've played together — not shown publicly)
                   <input
@@ -304,8 +353,10 @@ export function ReviewForm({ target, targetMatches, alreadyReviewed, session, on
               <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
                 {submitState.status === "submitting" ? (
                   <>
-                    <Spinner size={14} /> Submitting…
+                    <Spinner size={14} /> {isEditing ? "Saving…" : "Submitting…"}
                   </>
+                ) : isEditing ? (
+                  "Save changes"
                 ) : (
                   "Submit review"
                 )}

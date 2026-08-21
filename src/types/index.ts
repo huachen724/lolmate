@@ -134,6 +134,9 @@ export interface Review {
   scores: ReviewScores;
   body: string;
   createdAt: number; // epoch ms
+  // Set once the review has been edited (or overridden — see
+  // ReviewHistoryEntry) at least once; null otherwise.
+  editedAt?: number | null;
   upvotes: number;
   downvotes: number;
   // Games the reviewer has shared with the target at time of writing —
@@ -145,6 +148,20 @@ export interface Review {
   // are never sent to the client at all (see server.js's rowToReview).
   myVote?: VoteValue | null;
   isMine?: boolean;
+}
+
+// A prior version of a review's reviewer-facing fields, captured right
+// before an edit or an impersonation-override replaced it (see PUT
+// /api/reviews/:id and POST /api/reviews's override path in server.js).
+// `reviewer` here is display-only — no puuid/unverifiedId, since past
+// authorship is only shown as a name, not something to act on.
+export interface ReviewHistoryEntry {
+  id: string;
+  reviewer: { kind: "verified"; riotId: RiotId } | { kind: "unverified"; displayName: string };
+  scores: ReviewScores;
+  body: string;
+  sharedGamesWithTarget: number;
+  archivedAt: number; // epoch ms
 }
 
 export interface ReviewSummary {

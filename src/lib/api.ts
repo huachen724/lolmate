@@ -9,6 +9,7 @@ import type {
   LiveGame,
   MatchSummary,
   Review,
+  ReviewHistoryEntry,
   ReviewScores,
   RiotId,
   SummonerProfile,
@@ -44,6 +45,15 @@ function getJson<T>(url: string): Promise<T> {
 function postJson<T>(url: string, payload: unknown): Promise<T> {
   return fetch(API_BASE + url, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(payload),
+  }).then(parseJsonOrThrow<T>);
+}
+
+function putJson<T>(url: string, payload: unknown): Promise<T> {
+  return fetch(API_BASE + url, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify(payload),
@@ -99,6 +109,22 @@ export interface NewReviewPayload {
 
 export function submitReview(payload: NewReviewPayload): Promise<Review> {
   return postJson("/api/reviews", payload);
+}
+
+export interface ReviewUpdatePayload {
+  reviewerKey?: string; // unverified path only, same as NewReviewPayload
+  reviewerAnonymous?: boolean;
+  scores: ReviewScores;
+  body: string;
+  sharedGamesWithTarget: number;
+}
+
+export function updateReview(reviewId: string, payload: ReviewUpdatePayload): Promise<Review> {
+  return putJson(`/api/reviews/${encodeURIComponent(reviewId)}`, payload);
+}
+
+export function fetchReviewHistory(reviewId: string): Promise<ReviewHistoryEntry[]> {
+  return getJson(`/api/reviews/${encodeURIComponent(reviewId)}/history`);
 }
 
 export function voteOnReview(

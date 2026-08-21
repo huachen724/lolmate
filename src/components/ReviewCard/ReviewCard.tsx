@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { REVIEW_CATEGORIES } from "../../types";
-import type { Review, VoteValue } from "../../types";
+import type { Review, ReviewHistoryEntry, VoteValue } from "../../types";
 import { useSession } from "../../hooks/useSession";
 import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
-import { deleteReview, voteOnReview } from "../../lib/api";
+import { deleteReview, fetchReviewHistory, voteOnReview } from "../../lib/api";
 import { timeAgo } from "../../lib/time";
 import { VerifiedBadge } from "../VerifiedBadge/VerifiedBadge";
 import "./ReviewCard.css";
@@ -18,13 +18,26 @@ function reviewerLabel(review: Review): { name: string; verified: boolean } {
   return { name: review.reviewer.displayName, verified: false };
 }
 
-export function ReviewCard({ review, onDeleted }: { review: Review; onDeleted?: (reviewId: string) => void }) {
+function historyEntryLabel(entry: ReviewHistoryEntry): string {
+  return entry.reviewer.kind === "verified" ? entry.reviewer.riotId.gameName : entry.reviewer.displayName;
+}
+
+interface ReviewCardProps {
+  review: Review;
+  onDeleted?: (reviewId: string) => void;
+  onEdit?: (review: Review) => void;
+}
+
+export function ReviewCard({ review, onDeleted, onEdit }: ReviewCardProps) {
   const session = useSession();
   const [upvotes, setUpvotes] = useState(review.upvotes);
   const [downvotes, setDownvotes] = useState(review.downvotes);
   const [myVote, setMyVote] = useState<VoteValue | null>(review.myVote ?? null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteState, setDeleteState] = useState<"idle" | "deleting" | "error">("idle");
+  const [history, setHistory] = useState<
+    { status: "hidden" } | { status: "loading" } | { status: "shown"; entries: ReviewHistoryEntry[] } | { status: "error" }
+  >({ status: "hidden" });
 
   const { name, verified } = reviewerLabel(review);
   const ratedCategories = REVIEW_CATEGORIES.filter((c) => review.scores[c.key] != null);
@@ -37,6 +50,20 @@ export function ReviewCard({ review, onDeleted }: { review: Review; onDeleted?: 
       onDeleted?.(review.id);
     } catch {
       setDeleteState("error");
+    }
+  }
+
+  async function toggleHistory() {
+    if (history.status === "shown" || history.status === "loading") {
+      setHistory({ status: "hidden" });
+      return;
+    }
+    setHistory({ status: "loading" });
+    try {
+      const entries = await fetchReviewHistory(review.id);
+      setHistory({ status: "shown", entries });
+    } catch {
+      setHistory({ status: "error" });
     }
   }
 
@@ -71,8 +98,37 @@ export function ReviewCard({ review, onDeleted }: { review: Review; onDeleted?: 
           {verified && <VerifiedBadge />}
           <span className="tag">{review.sharedGamesWithTarget} games together</span>
         </div>
-        <span className="faint">{timeAgo(review.createdAt)}</span>
+        <span className="faint">
+          {timeAgo(review.createdAt)}
+          {review.editedAt && (
+            <>
+              {" · "}
+              <button type="button" className="review-card-edited-btn" onClick={toggleHistory}>
+                (edited)
+              </button>
+            </>
+          )}
+        </span>
       </header>
+
+      {history.status === "shown" && (
+        <div className="review-card-history">
+          {history.entries.length === 0 ? (
+            <p className="faint">No earlier versions found.</p>
+          ) : (
+            history.entries.map((entry) => (
+              <div className="review-card-history-entry" key={entry.id}>
+                <div className="faint review-card-history-meta">
+                  {historyEntryLabel(entry)} · {timeAgo(entry.archivedAt)}
+                </div>
+                <p className="review-card-history-body">{entry.body}</p>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+      {history.status === "loading" && <p className="faint">Loading previous versions…</p>}
+      {history.status === "error" && <p className="faint">Couldn't load previous versions.</p>}
 
       {ratedCategories.length > 0 ? (
         <div className="review-card-scores">
@@ -135,9 +191,16 @@ export function ReviewCard({ review, onDeleted }: { review: Review; onDeleted?: 
                 </button>
               </>
             ) : (
-              <button type="button" className="review-card-delete-btn" onClick={() => setConfirmingDelete(true)}>
-                Delete
-              </button>
+              <>
+                {onEdit && (
+                  <button type="button" className="review-card-edit-btn" onClick={() => onEdit(review)}>
+                    Edit
+                  </button>
+                )}
+                <button type="button" className="review-card-delete-btn" onClick={() => setConfirmingDelete(true)}>
+                  Delete
+                </button>
+              </>
             )}
           </div>
         )}

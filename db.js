@@ -49,11 +49,37 @@ CREATE TABLE IF NOT EXISTS reviews (
   body text NOT NULL,
   shared_games_with_target int NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
+  edited_at timestamptz,
   deleted_at timestamptz,
   UNIQUE (target_puuid, reviewer_key)
 );
 
 CREATE INDEX IF NOT EXISTS reviews_target_puuid_idx ON reviews (target_puuid);
+
+-- A full snapshot of a review's reviewer-facing fields immediately before
+-- each edit, so "view previous version" (see PUT /api/reviews/:id) has real
+-- content to show — includes authorship fields, not just body/scores,
+-- since the same mechanism is reused for the impersonation-override case
+-- (an edit that also changes who the review is attributed to).
+CREATE TABLE IF NOT EXISTS review_edit_history (
+  id text PRIMARY KEY,
+  review_id text NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+  reviewer_kind text NOT NULL,
+  reviewer_key text NOT NULL,
+  reviewer_game_name text,
+  reviewer_tag_line text,
+  reviewer_display_name text,
+  body text NOT NULL,
+  map_awareness smallint,
+  mechanical_skill smallint,
+  teamwork smallint,
+  communication smallint,
+  sportsmanship smallint,
+  shared_games_with_target int NOT NULL,
+  archived_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS review_edit_history_review_id_idx ON review_edit_history (review_id);
 
 CREATE TABLE IF NOT EXISTS review_votes (
   review_id text NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
@@ -110,6 +136,7 @@ ALTER TABLE reviews ALTER COLUMN teamwork DROP NOT NULL;
 ALTER TABLE reviews ALTER COLUMN communication DROP NOT NULL;
 ALTER TABLE reviews ALTER COLUMN sportsmanship DROP NOT NULL;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS edited_at timestamptz;
 `;
 
 export async function runMigrations() {

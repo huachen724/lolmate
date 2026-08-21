@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -508,12 +509,62 @@ function rowToReview(row) {
     },
     body: row.body,
     createdAt: new Date(row.created_at).getTime(),
+    editedAt: row.edited_at ? new Date(row.edited_at).getTime() : null,
     upvotes: Number(row.upvotes ?? 0),
     downvotes: Number(row.downvotes ?? 0),
     sharedGamesWithTarget: row.shared_games_with_target,
     myVote: row.my_vote ?? null,
     isMine: row.is_mine ?? false,
   };
+}
+
+function historyRowToEntry(row) {
+  return {
+    id: row.id,
+    reviewer:
+      row.reviewer_kind === "verified"
+        ? { kind: "verified", riotId: { gameName: row.reviewer_game_name, tagLine: row.reviewer_tag_line } }
+        : { kind: "unverified", displayName: row.reviewer_display_name },
+    scores: {
+      mapAwareness: row.map_awareness,
+      mechanicalSkill: row.mechanical_skill,
+      teamwork: row.teamwork,
+      communication: row.communication,
+      sportsmanship: row.sportsmanship,
+    },
+    body: row.body,
+    sharedGamesWithTarget: row.shared_games_with_target,
+    archivedAt: new Date(row.archived_at).getTime(),
+  };
+}
+
+// Snapshots a review's current reviewer-facing state into review_edit_history
+// before an edit or override overwrites it — shared by PUT /api/reviews/:id
+// and the impersonation-override path in POST /api/reviews.
+async function archiveReviewVersion(client, reviewRow) {
+  await client.query(
+    `INSERT INTO review_edit_history (
+       id, review_id, reviewer_kind, reviewer_key, reviewer_game_name, reviewer_tag_line,
+       reviewer_display_name, body, map_awareness, mechanical_skill, teamwork,
+       communication, sportsmanship, shared_games_with_target
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      `hist-${crypto.randomUUID()}`,
+      reviewRow.id,
+      reviewRow.reviewer_kind,
+      reviewRow.reviewer_key,
+      reviewRow.reviewer_game_name,
+      reviewRow.reviewer_tag_line,
+      reviewRow.reviewer_display_name,
+      reviewRow.body,
+      reviewRow.map_awareness,
+      reviewRow.mechanical_skill,
+      reviewRow.teamwork,
+      reviewRow.communication,
+      reviewRow.sportsmanship,
+      reviewRow.shared_games_with_target,
+    ],
+  );
 }
 
 async function queryReviews(targetPuuids, voterKey) {
@@ -775,6 +826,94 @@ app.post("/api/reviews", async (req, res) => {
     }
     console.error(error);
     res.status(500).json({ error: "Failed to save review." });
+  }
+});
+
+// Edits the reviewer's own review in place rather than creating a second
+// row — the (target_puuid, reviewer_key) unique constraint stays a real
+// "one review per pair" rule, it just becomes updatable instead of
+// permanent. The prior state is archived to review_edit_history first so
+// "view previous version" has something to show.
+app.put("/api/reviews/:id", async (req, res) => {
+  const { scores, body, sharedGamesWithTarget, reviewerAnonymous } = req.body || {};
+  if (!body || !body.trim()) {
+    return res.status(400).json({ error: "Review body is required." });
+  }
+
+  const voterKey = await resolveViewerKey(req, req.body?.reviewerKey);
+  if (!voterKey) return res.status(400).json({ error: "Missing reviewerKey." });
+
+  const s = scores || {};
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows: existingRows } = await client.query(
+      "SELECT * FROM reviews WHERE id = $1 AND reviewer_key = $2 AND deleted_at IS NULL FOR UPDATE",
+      [req.params.id, voterKey],
+    );
+    const existing = existingRows[0];
+    if (!existing) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Review not found, deleted, or not yours to edit." });
+    }
+
+    await archiveReviewVersion(client, existing);
+
+    const { rows } = await client.query(
+      `UPDATE reviews SET
+         body = $1, map_awareness = $2, mechanical_skill = $3, teamwork = $4,
+         communication = $5, sportsmanship = $6, shared_games_with_target = $7,
+         reviewer_anonymous = CASE WHEN reviewer_kind = 'verified' THEN $8 ELSE reviewer_anonymous END,
+         edited_at = now()
+       WHERE id = $9
+       RETURNING *`,
+      [
+        body,
+        s.mapAwareness ?? null,
+        s.mechanicalSkill ?? null,
+        s.teamwork ?? null,
+        s.communication ?? null,
+        s.sportsmanship ?? null,
+        sharedGamesWithTarget ?? existing.shared_games_with_target,
+        !!reviewerAnonymous,
+        req.params.id,
+      ],
+    );
+
+    await client.query("COMMIT");
+
+    const { rows: voteRows } = await pool.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN value = 1 THEN 1 ELSE 0 END), 0)::int AS upvotes,
+         COALESCE(SUM(CASE WHEN value = -1 THEN 1 ELSE 0 END), 0)::int AS downvotes,
+         MAX(CASE WHEN voter_key = $2 THEN value END) AS my_vote
+       FROM review_votes WHERE review_id = $1`,
+      [req.params.id, voterKey],
+    );
+
+    res.json(rowToReview({ ...rows[0], ...voteRows[0], is_mine: true }));
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(error);
+    res.status(500).json({ error: "Failed to update review." });
+  } finally {
+    client.release();
+  }
+});
+
+// Public (like reviews themselves) — lets anyone viewing a review see it's
+// been edited and what it used to say, not just the reviewer.
+app.get("/api/reviews/:id/history", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT * FROM review_edit_history WHERE review_id = $1 ORDER BY archived_at DESC",
+      [req.params.id],
+    );
+    res.json(rows.map(historyRowToEntry));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to load review history." });
   }
 });
 
