@@ -40,8 +40,8 @@ export function LandingPage() {
           Sign in
         </button>
         <p className="faint">
-          Signing in with Discord or Google lets you review teammates from your own match history
-          — once you've verified you actually own the Riot account you're posting under.
+          Sign in to see your live game teammate reviews, your recent matches, and post verified
+          reviews!
         </p>
       </section>
 
