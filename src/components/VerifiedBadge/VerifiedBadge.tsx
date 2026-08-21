@@ -14,10 +14,7 @@ export function VerifiedBadge({ size = "sm" }: { size?: "sm" | "md" }) {
           fill="currentColor"
           d="M8 0l1.7 1.6 2.3-.5.7 2.3 2.3.7-.5 2.3L16 8l-1.6 1.7.5 2.3-2.3.7-.7 2.3-2.3-.5L8 16l-1.7-1.6-2.3.5-.7-2.3-2.3-.7.5-2.3L0 8l1.6-1.7-.5-2.3 2.3-.7.7-2.3 2.3.5z"
         />
-        <path
-          fill="#06251f"
-          d="M6.9 11.2 4.3 8.6l1-1 1.6 1.6 4-4 1 1z"
-        />
+        <path fill="var(--on-accent)" d="M6.9 11.2 4.3 8.6l1-1 1.6 1.6 4-4 1 1z" />
       </svg>
       <span className="visually-hidden">Verified</span>
     </span>

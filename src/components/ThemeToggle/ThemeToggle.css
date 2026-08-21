@@ -1,0 +1,8 @@
+.theme-toggle {
+  padding: 8px;
+  color: var(--text-dim);
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+}

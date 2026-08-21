@@ -5,6 +5,7 @@ import { signOut } from "../../lib/session";
 import { SearchBar } from "../SearchBar/SearchBar";
 import { SignInModal } from "../SignInModal/SignInModal";
 import { RiotVerifyModal } from "../RiotVerifyModal/RiotVerifyModal";
+import { ThemeToggle } from "../ThemeToggle/ThemeToggle";
 import "./Navbar.css";
 
 export function Navbar() {
@@ -31,6 +32,8 @@ export function Navbar() {
         <SearchBar variant="compact" />
 
         <nav className="navbar-links">
+          <ThemeToggle />
+
           {session?.riotGameName && session.riotTagLine && (
             <Link
               to={`/live/${encodeURIComponent(session.riotGameName)}/${encodeURIComponent(session.riotTagLine)}`}

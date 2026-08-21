@@ -84,7 +84,7 @@
 .review-vote-active-up {
   border-color: var(--success);
   color: var(--success);
-  background: rgba(92, 225, 122, 0.1);
+  background: var(--success-soft);
 }
 
 .review-vote-active-down {

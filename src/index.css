@@ -1,4 +1,94 @@
+/* Light is the default theme (no attribute needed). Dark applies either
+   from OS preference (the media query below) or an explicit user choice
+   via the toggle in Navbar (documentElement[data-theme="dark"], see
+   src/lib/theme.ts) — the attribute always wins over OS preference,
+   which is what ":not([data-theme='light'])" is guarding against below:
+   without it, a user who explicitly chose light on a dark-OS machine
+   would still get overridden by the media query. */
 :root {
+  --bg: #faf9f7;
+  --bg-elevated: #f1f0ed;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f6f5f2;
+  --border: #e3e1db;
+  --border-light: #d2cfc7;
+
+  --text: #201f1c;
+  --text-dim: #6b675f;
+  --text-faint: #9a968c;
+
+  --accent: #0f7d68;
+  --accent-strong: #0b5f4f;
+  --accent-soft: rgba(15, 125, 104, 0.1);
+  --on-accent: #fbfffd;
+
+  --gold: #a3781f;
+  --danger: #b8463a;
+  --danger-soft: rgba(184, 70, 58, 0.08);
+  --success: #1f8a4c;
+  --success-soft: rgba(31, 138, 76, 0.1);
+
+  --tier-iron: #5b534f;
+  --tier-bronze: #8c5a34;
+  --tier-silver: #62707e;
+  --tier-gold: #a3781f;
+  --tier-platinum: #0f8a76;
+  --tier-diamond: #3457c2;
+  --tier-master: #9636c2;
+
+  --overlay: rgba(15, 14, 11, 0.55);
+  --nav-bg: rgba(250, 249, 247, 0.85);
+  --shadow-dropdown: 0 12px 24px rgba(32, 31, 28, 0.12);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+
+  font-family: "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0d17;
+    --bg-elevated: #11131f;
+    --bg-card: #161a2c;
+    --bg-card-hover: #1c2138;
+    --border: #272c44;
+    --border-light: #353c5e;
+
+    --text: #eef0fb;
+    --text-dim: #9aa0c3;
+    --text-faint: #686f93;
+
+    --accent: #5ce1c6;
+    --accent-strong: #2fd9b8;
+    --accent-soft: rgba(92, 225, 198, 0.12);
+    --on-accent: #06251f;
+
+    --gold: #e8c468;
+    --danger: #f1556c;
+    --danger-soft: rgba(241, 85, 108, 0.12);
+    --success: #5ce17a;
+    --success-soft: rgba(92, 225, 122, 0.1);
+
+    --tier-iron: #7a6f6a;
+    --tier-bronze: #b08968;
+    --tier-silver: #aab4c2;
+    --tier-gold: #e8c468;
+    --tier-platinum: #5ce1c6;
+    --tier-diamond: #7a9bf0;
+    --tier-master: #c873e0;
+
+    --overlay: rgba(5, 6, 12, 0.7);
+    --nav-bg: rgba(11, 13, 23, 0.85);
+    --shadow-dropdown: 0 12px 24px rgba(0, 0, 0, 0.4);
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
   --bg: #0b0d17;
   --bg-elevated: #11131f;
   --bg-card: #161a2c;
@@ -13,11 +103,13 @@
   --accent: #5ce1c6;
   --accent-strong: #2fd9b8;
   --accent-soft: rgba(92, 225, 198, 0.12);
+  --on-accent: #06251f;
 
   --gold: #e8c468;
   --danger: #f1556c;
   --danger-soft: rgba(241, 85, 108, 0.12);
   --success: #5ce17a;
+  --success-soft: rgba(92, 225, 122, 0.1);
 
   --tier-iron: #7a6f6a;
   --tier-bronze: #b08968;
@@ -27,11 +119,10 @@
   --tier-diamond: #7a9bf0;
   --tier-master: #c873e0;
 
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
+  --overlay: rgba(5, 6, 12, 0.7);
+  --nav-bg: rgba(11, 13, 23, 0.85);
+  --shadow-dropdown: 0 12px 24px rgba(0, 0, 0, 0.4);
 
-  font-family: "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
   color-scheme: dark;
 }
 
@@ -46,7 +137,7 @@ body {
 }
 
 body {
-  background: radial-gradient(circle at top, #131830 0%, var(--bg) 55%);
+  background: var(--bg);
   color: var(--text);
   min-height: 100vh;
 }
@@ -113,7 +204,7 @@ button {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #06251f;
+  color: var(--on-accent);
 }
 
 .btn-primary:hover {

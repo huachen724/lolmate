@@ -3,8 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b0d17" />
+    <meta name="theme-color" content="#faf9f7" />
     <title>LolMate — Know who you're playing with</title>
+    <script>
+      // Applies the effective theme (stored choice, else OS preference)
+      // before first paint — avoids a flash of the wrong theme that
+      // useTheme's own effect (running after React mounts) would cause.
+      (function () {
+        var stored = localStorage.getItem("lolmate.theme.v1");
+        var theme = stored === "light" || stored === "dark" ? stored : null;
+        if (!theme) {
+          theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

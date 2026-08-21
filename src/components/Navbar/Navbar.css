@@ -1,6 +1,6 @@
 .navbar {
   border-bottom: 1px solid var(--border);
-  background: rgba(11, 13, 23, 0.85);
+  background: var(--nav-bg);
   backdrop-filter: blur(8px);
   position: sticky;
   top: 0;
