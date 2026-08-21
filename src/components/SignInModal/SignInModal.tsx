@@ -63,8 +63,8 @@ export function SignInModal({ onClose }: SignInModalProps) {
       <div className="card sign-in-modal" onClick={(e) => e.stopPropagation()}>
         <h2>Sign in</h2>
         <p className="muted">
-          Sign in to see your own recent matches and review teammates from them — and to post
-          reviews under a Riot account you've proven you actually own, instead of just typing one.
+          Sign in to see your live game teammate reviews, your recent matches, and post verified
+          reviews!
         </p>
 
         {nothingConfigured && <p className="sign-in-modal-error">Sign-in isn't configured yet.</p>}
