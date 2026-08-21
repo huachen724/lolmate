@@ -231,7 +231,11 @@ export function PlayerProfilePage() {
         <ReviewSummaryPanel summary={summary} />
         <div className="profile-review-list">
           {reviews.map((r) => (
-            <ReviewCard key={r.id} review={r} />
+            <ReviewCard
+              key={r.id}
+              review={r}
+              onDeleted={(id) => setReviews((prev) => prev.filter((review) => review.id !== id))}
+            />
           ))}
         </div>
       </section>

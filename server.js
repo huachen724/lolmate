@@ -525,7 +525,7 @@ async function queryReviews(targetPuuids, voterKey) {
        (r.reviewer_key = $2) AS is_mine
      FROM reviews r
      LEFT JOIN review_votes v ON v.review_id = r.id
-     WHERE r.target_puuid = ANY($1::text[])
+     WHERE r.target_puuid = ANY($1::text[]) AND r.deleted_at IS NULL
      GROUP BY r.id
      ORDER BY r.created_at DESC`,
     [targetPuuids, voterKey ?? ""],
@@ -808,6 +808,32 @@ app.post("/api/reviews/:id/vote", async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Failed to save vote." });
+  }
+});
+
+// Soft delete — the row stays (and review_votes stays untouched via FK),
+// just hidden from every read path via queryReviews's `deleted_at IS NULL`
+// filter. Ownership is checked the same way "isMine" is computed for reads:
+// the requester's resolved identity (session puuid if verified, else the
+// client-supplied unverified cookie id) must equal the row's reviewer_key.
+app.delete("/api/reviews/:id", async (req, res) => {
+  const voterKey = await resolveViewerKey(req, req.body?.reviewerKey ?? req.query.reviewerKey);
+  if (!voterKey) return res.status(400).json({ error: "Missing reviewerKey." });
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE reviews SET deleted_at = now()
+       WHERE id = $1 AND reviewer_key = $2 AND deleted_at IS NULL
+       RETURNING id`,
+      [req.params.id, voterKey],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Review not found, already deleted, or not yours to delete." });
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to delete review." });
   }
 });
 

@@ -109,6 +109,18 @@ export function voteOnReview(
   return postJson(`/api/reviews/${encodeURIComponent(reviewId)}/vote`, { voterKey, value });
 }
 
+// reviewerKey only matters for the unverified path (a verified deleter is
+// resolved from the session cookie server-side, same as everywhere else —
+// see server.js's resolveViewerKey) — passed as a query param since DELETE
+// requests conventionally don't carry a body.
+export function deleteReview(reviewId: string, reviewerKey: string): Promise<{ ok: boolean }> {
+  const params = new URLSearchParams({ reviewerKey });
+  return fetch(`${API_BASE}/api/reviews/${encodeURIComponent(reviewId)}?${params.toString()}`, {
+    method: "DELETE",
+    credentials: "include",
+  }).then(parseJsonOrThrow<{ ok: boolean }>);
+}
+
 // --- Accounts (Discord/Google login + Riot ownership verification) -------
 
 export function fetchStatus(): Promise<{ hasApiKey: boolean; platform: string; region: string; discordAuth: boolean; googleAuth: boolean }> {

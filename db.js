@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   body text NOT NULL,
   shared_games_with_target int NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
   UNIQUE (target_puuid, reviewer_key)
 );
 
@@ -108,6 +109,7 @@ ALTER TABLE reviews ALTER COLUMN mechanical_skill DROP NOT NULL;
 ALTER TABLE reviews ALTER COLUMN teamwork DROP NOT NULL;
 ALTER TABLE reviews ALTER COLUMN communication DROP NOT NULL;
 ALTER TABLE reviews ALTER COLUMN sportsmanship DROP NOT NULL;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 `;
 
 export async function runMigrations() {

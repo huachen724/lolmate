@@ -3,7 +3,7 @@ import { REVIEW_CATEGORIES } from "../../types";
 import type { Review, VoteValue } from "../../types";
 import { useSession } from "../../hooks/useSession";
 import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
-import { voteOnReview } from "../../lib/api";
+import { deleteReview, voteOnReview } from "../../lib/api";
 import { timeAgo } from "../../lib/time";
 import { VerifiedBadge } from "../VerifiedBadge/VerifiedBadge";
 import "./ReviewCard.css";
@@ -18,14 +18,27 @@ function reviewerLabel(review: Review): { name: string; verified: boolean } {
   return { name: review.reviewer.displayName, verified: false };
 }
 
-export function ReviewCard({ review }: { review: Review }) {
+export function ReviewCard({ review, onDeleted }: { review: Review; onDeleted?: (reviewId: string) => void }) {
   const session = useSession();
   const [upvotes, setUpvotes] = useState(review.upvotes);
   const [downvotes, setDownvotes] = useState(review.downvotes);
   const [myVote, setMyVote] = useState<VoteValue | null>(review.myVote ?? null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteState, setDeleteState] = useState<"idle" | "deleting" | "error">("idle");
 
   const { name, verified } = reviewerLabel(review);
   const ratedCategories = REVIEW_CATEGORIES.filter((c) => review.scores[c.key] != null);
+
+  async function handleDelete() {
+    const voterKey = session?.riotPuuid ? session.riotPuuid : getOrCreateUnverifiedReviewerId();
+    setDeleteState("deleting");
+    try {
+      await deleteReview(review.id, voterKey);
+      onDeleted?.(review.id);
+    } catch {
+      setDeleteState("error");
+    }
+  }
 
   // Thumbs up/down dedup: one vote per (reviewId, voterKey), enforced by a
   // unique constraint in the database (see db.js) — voterKey is the
@@ -93,6 +106,41 @@ export function ReviewCard({ review }: { review: Review }) {
         >
           ▼ {downvotes}
         </button>
+
+        {review.isMine && (
+          <div className="review-card-owner-actions">
+            {confirmingDelete ? (
+              <>
+                <span className="faint">
+                  {deleteState === "error" ? "Couldn't delete — try again?" : "Delete this review?"}
+                </span>
+                <button
+                  type="button"
+                  className="review-card-delete-confirm"
+                  onClick={handleDelete}
+                  disabled={deleteState === "deleting"}
+                >
+                  {deleteState === "deleting" ? "Deleting…" : "Yes, delete"}
+                </button>
+                <button
+                  type="button"
+                  className="review-card-delete-cancel"
+                  onClick={() => {
+                    setConfirmingDelete(false);
+                    setDeleteState("idle");
+                  }}
+                  disabled={deleteState === "deleting"}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button type="button" className="review-card-delete-btn" onClick={() => setConfirmingDelete(true)}>
+                Delete
+              </button>
+            )}
+          </div>
+        )}
       </footer>
     </article>
   );
