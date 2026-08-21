@@ -19,22 +19,38 @@ you know who you're playing with before the match even ends.
   [API rate limits](#api-rate-limits)).
 - **Live game view** — while a searched player is in an active game, see
   every participant on both teams (rank, top champions, and their review
-  score) sourced from spectator-v5.
+  score) sourced from spectator-v5. Participants with Riot's Streamer Mode
+  enabled show as anonymized "Hidden" rows instead of a real identity,
+  matching what spectator-v5 itself returns for them.
 - **Peer reviews** — a written comment (up to 2000 characters) plus optional
   1-5 star ratings across 5 axes (map awareness, mechanical skill, teamwork,
   communication, sportsmanship) — rate whichever categories you want, or
   none at all. Reviews can be upvoted/downvoted and are limited to one per
   reviewer per target, and only allowed if you've played with that person
   within the past week.
+- **Edit, delete, and view review history** — the reviewer who wrote a
+  review (and only them) can edit or soft-delete it later; a deleted review
+  disappears from the UI but the row is kept, and an edited review shows an
+  "(edited)" label that expands to every earlier version (see
+  [Review lifecycle & integrity](#review-lifecycle--integrity)).
 - **Real account verification** — sign in with Discord or Google, then prove
   you actually own the Riot account you want to review under via a
   profile-icon ownership challenge (see
   [Accounts & Riot verification](#accounts--riot-verification)). Reviewers
   who skip this still get an unverified/anonymous path, identified by a
   per-browser id instead.
+- **Anonymous-review integrity** — an unverified review tracks the Riot
+  identity it claimed at submission time, so once that account signs in and
+  verifies, LolMate can reconcile the two: reviews impersonating a real
+  account get overridden or cleaned up automatically instead of sticking
+  around under someone else's name forever (see
+  [Review lifecycle & integrity](#review-lifecycle--integrity)).
 - **Dashboard** — once your Riot account is verified, land on a dashboard
   showing your most recent match and a one-click prompt to review each
   teammate from it.
+- **Light/dark mode** — a manual toggle in the navbar overrides your OS
+  preference; the choice is remembered per-browser and applied before first
+  paint (no flash of the wrong theme).
 
 ## Tech stack
 
@@ -93,6 +109,43 @@ server always derives it from the session cookie plus `users.riot_puuid`
 without actually completing the challenge. Skipping sign-in/verification
 entirely still works via the unverified path (a typed Riot ID for shared-game
 eligibility, plus a self-chosen display name, deduped by a per-browser id).
+
+## Review lifecycle & integrity
+
+- **Soft delete** — `DELETE /api/reviews/:id` sets `reviews.deleted_at`
+  instead of removing the row; every read query filters it out
+  (`WHERE deleted_at IS NULL`). Ownership is checked server-side the same
+  way as everywhere else: a verified reviewer's identity comes from the
+  session cookie, an unverified one from a per-browser id they supply.
+- **Edit with history** — `PUT /api/reviews/:id` updates a review in place
+  (same ownership check) and snapshots the prior reviewer-facing fields into
+  `review_edit_history` first, so `GET /api/reviews/:id/history` can show
+  every earlier version. Editing sets `edited_at`, which is what drives the
+  "(edited)" affordance in `ReviewCard`.
+- **Claimed-identity tracking** — an unverified reviewer types a Riot ID to
+  prove shared-game eligibility, but that identity is never actually
+  verified. LolMate now persists it (`reviews.reviewer_claimed_puuid`) and
+  enforces at most one unverified review per claimed identity per target
+  (a partial unique index), closing the "clear localStorage, review the
+  same person again under someone else's name" loophole.
+- **Impersonation override** — if a verified reviewer submits or edits a
+  review of a target who already has an unverified review claiming their
+  exact `puuid`, that row is updated in place (content and authorship
+  change; `id`, `created_at`, and votes are preserved) rather than creating
+  a duplicate. The submitter sees a one-time notice explaining what
+  happened.
+- **Post-verification reconciliation** — right after completing Riot
+  ownership verification, `ReconcileReviewsModal` fetches every unverified
+  review claiming the now-verified `puuid`
+  (`GET /api/verify/unverified-reviews`) and lets the user pick which ones
+  are actually theirs. Checkboxes default **unchecked**; confirming
+  (`POST /api/verify/reconcile-reviews`) converts the checked ones to
+  verified in place and soft-deletes the rest. "Skip for now" closes
+  without deciding anything — nothing is destructive by default.
+- **Rate limiting** — unverified submissions are capped at one per two
+  minutes per reviewer key (`UNVERIFIED_SUBMIT_COOLDOWN_MS` in `server.js`).
+  Verified submissions are exempt — they're already gated behind real OAuth
+  plus Riot ownership verification.
 
 ## Deployment
 
@@ -187,9 +240,14 @@ auth.js                    OAuth (Discord/Google) + signed session cookie helper
 db.js                      Postgres connection + schema/migrations
 src/
   pages/                   LandingPage, DashboardPage, PlayerProfilePage, LiveMatchPage
-  components/               Shared UI (search bar, review form/cards, sign-in/verify modals, etc.)
-  lib/                      API client, Data Dragon helpers, session/local-storage helpers
-  hooks/                    useSession — fetches the current account from /api/auth/me
+  components/               Shared UI:
+                              ReviewForm/ReviewCard    write, edit, delete, vote, view history
+                              ReconcileReviewsModal     post-verification claimed-review triage
+                              SignInModal/RiotVerifyModal  OAuth sign-in, icon ownership challenge
+                              ThemeToggle               light/dark mode switch
+                              SearchBar, MatchHistoryCard, RankBadge, ChampionAvatar, etc.
+  lib/                      API client, Data Dragon helpers, session/theme/local-storage helpers
+  hooks/                    useSession (GET /api/auth/me), useTheme (light/dark mode)
   types/                    Shared TypeScript types
 ```
 
