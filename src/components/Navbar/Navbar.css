@@ -1,10 +1,59 @@
+/* A dark "chrome" bar that doesn't just mirror the site's light/dark
+   theme — closer to how a lot of apps keep their toolbar a deliberate
+   brand color instead of a plain reskin of the content area. Both
+   variants are deep shades of the Freljord Blue accent; dark mode leans
+   more toward a deep steel/ice blue so it still reads as distinct from
+   the light-mode bar rather than identical. Scoping a full palette
+   override here (rather than one-off overrides per child rule) means
+   every component rendered inside — SearchBar, buttons, the avatar —
+   just inherits correct colors for this context automatically, the same
+   variable names they already use everywhere else. */
 .navbar {
+  --bg-elevated: #274a9e;
+  --bg-card: #274a9e;
+  --bg-card-hover: #2f56b5;
+  --border: #2c4bab;
+  --border-light: #3d5fc4;
+  --text: #f4f6fa;
+  --text-dim: #bcd0f0;
+  --text-faint: #8aa3d6;
+  --accent: #93c5fd;
+  --accent-strong: #bcdcff;
+  --accent-soft: rgba(147, 197, 253, 0.22);
+  --on-accent: #0b1220;
+
   border-bottom: 1px solid var(--border);
-  background: var(--nav-bg);
-  backdrop-filter: blur(8px);
+  background: #1e3a8a;
+  color: var(--text);
   position: sticky;
   top: 0;
   z-index: 30;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .navbar {
+    --bg-elevated: #123258;
+    --bg-card: #123258;
+    --bg-card-hover: #163c69;
+    --border: #163c69;
+    --border-light: #1f4d85;
+    --text-dim: #a9c4e8;
+    --text-faint: #6e88ac;
+
+    background: #0c2340;
+  }
+}
+
+:root[data-theme="dark"] .navbar {
+  --bg-elevated: #123258;
+  --bg-card: #123258;
+  --bg-card-hover: #163c69;
+  --border: #163c69;
+  --border-light: #1f4d85;
+  --text-dim: #a9c4e8;
+  --text-faint: #6e88ac;
+
+  background: #0c2340;
 }
 
 .navbar-inner {

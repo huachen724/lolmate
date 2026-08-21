@@ -5,28 +5,31 @@
    which is what ":not([data-theme='light'])" is guarding against below:
    without it, a user who explicitly chose light on a dark-OS machine
    would still get overridden by the media query. */
+/* "Freljord Blue" palette. */
 :root {
-  --bg: #faf9f7;
-  --bg-elevated: #f1f0ed;
+  --bg: #f1f5f9;
+  --bg-elevated: #eaf0f6;
   --bg-card: #ffffff;
-  --bg-card-hover: #f6f5f2;
-  --border: #e3e1db;
-  --border-light: #d2cfc7;
+  --bg-card-hover: #e9eef4;
+  --border: #e2e8f0;
+  --border-light: #cbd5e1;
 
-  --text: #201f1c;
-  --text-dim: #6b675f;
-  --text-faint: #9a968c;
+  --text: #1e293b;
+  --text-dim: #64748b;
+  --text-faint: #94a3b8;
 
-  --accent: #0f7d68;
-  --accent-strong: #0b5f4f;
-  --accent-soft: rgba(15, 125, 104, 0.1);
-  --on-accent: #fbfffd;
+  --accent: #2563eb;
+  --accent-strong: #60a5fa;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --on-accent: #ffffff;
+  --accent2: #06b6d4;
 
-  --gold: #a3781f;
-  --danger: #b8463a;
-  --danger-soft: rgba(184, 70, 58, 0.08);
-  --success: #1f8a4c;
-  --success-soft: rgba(31, 138, 76, 0.1);
+  --gold: #f59e0b;
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.08);
+  --success: #22c55e;
+  --success-soft: rgba(34, 197, 94, 0.1);
+  --warning: #f59e0b;
 
   --tier-iron: #5b534f;
   --tier-bronze: #8c5a34;
@@ -37,7 +40,6 @@
   --tier-master: #9636c2;
 
   --overlay: rgba(15, 14, 11, 0.55);
-  --nav-bg: rgba(250, 249, 247, 0.85);
   --shadow-dropdown: 0 12px 24px rgba(32, 31, 28, 0.12);
 
   --radius-sm: 8px;
@@ -50,27 +52,29 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0b0d17;
-    --bg-elevated: #11131f;
-    --bg-card: #161a2c;
-    --bg-card-hover: #1c2138;
-    --border: #272c44;
-    --border-light: #353c5e;
+    --bg: #0b1220;
+    --bg-elevated: #121b2e;
+    --bg-card: #1e293b;
+    --bg-card-hover: #263449;
+    --border: #24344a;
+    --border-light: #35496b;
 
-    --text: #eef0fb;
-    --text-dim: #9aa0c3;
-    --text-faint: #686f93;
+    --text: #f1f5f9;
+    --text-dim: #94a3b8;
+    --text-faint: #64748b;
 
-    --accent: #5ce1c6;
-    --accent-strong: #2fd9b8;
-    --accent-soft: rgba(92, 225, 198, 0.12);
-    --on-accent: #06251f;
+    --accent: #3b82f6;
+    --accent-strong: #93c5fd;
+    --accent-soft: rgba(59, 130, 246, 0.16);
+    --on-accent: #fafaff;
+    --accent2: #22d3ee;
 
-    --gold: #e8c468;
-    --danger: #f1556c;
-    --danger-soft: rgba(241, 85, 108, 0.12);
-    --success: #5ce17a;
-    --success-soft: rgba(92, 225, 122, 0.1);
+    --gold: #fbbf24;
+    --danger: #f87171;
+    --danger-soft: rgba(248, 113, 113, 0.12);
+    --success: #34d399;
+    --success-soft: rgba(52, 211, 153, 0.12);
+    --warning: #fbbf24;
 
     --tier-iron: #7a6f6a;
     --tier-bronze: #b08968;
@@ -81,7 +85,6 @@
     --tier-master: #c873e0;
 
     --overlay: rgba(5, 6, 12, 0.7);
-    --nav-bg: rgba(11, 13, 23, 0.85);
     --shadow-dropdown: 0 12px 24px rgba(0, 0, 0, 0.4);
 
     color-scheme: dark;
@@ -89,27 +92,29 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0b0d17;
-  --bg-elevated: #11131f;
-  --bg-card: #161a2c;
-  --bg-card-hover: #1c2138;
-  --border: #272c44;
-  --border-light: #353c5e;
+  --bg: #0b1220;
+  --bg-elevated: #121b2e;
+  --bg-card: #1e293b;
+  --bg-card-hover: #263449;
+  --border: #24344a;
+  --border-light: #35496b;
 
-  --text: #eef0fb;
-  --text-dim: #9aa0c3;
-  --text-faint: #686f93;
+  --text: #f1f5f9;
+  --text-dim: #94a3b8;
+  --text-faint: #64748b;
 
-  --accent: #5ce1c6;
-  --accent-strong: #2fd9b8;
-  --accent-soft: rgba(92, 225, 198, 0.12);
-  --on-accent: #06251f;
+  --accent: #3b82f6;
+  --accent-strong: #93c5fd;
+  --accent-soft: rgba(59, 130, 246, 0.16);
+  --on-accent: #fafaff;
+  --accent2: #22d3ee;
 
-  --gold: #e8c468;
-  --danger: #f1556c;
-  --danger-soft: rgba(241, 85, 108, 0.12);
-  --success: #5ce17a;
-  --success-soft: rgba(92, 225, 122, 0.1);
+  --gold: #fbbf24;
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.12);
+  --warning: #fbbf24;
 
   --tier-iron: #7a6f6a;
   --tier-bronze: #b08968;
@@ -120,7 +125,6 @@
   --tier-master: #c873e0;
 
   --overlay: rgba(5, 6, 12, 0.7);
-  --nav-bg: rgba(11, 13, 23, 0.85);
   --shadow-dropdown: 0 12px 24px rgba(0, 0, 0, 0.4);
 
   color-scheme: dark;
