@@ -13,6 +13,7 @@ import type {
   ReviewScores,
   RiotId,
   SummonerProfile,
+  UnverifiedReviewCandidate,
   VoteValue,
 } from "../types";
 
@@ -182,4 +183,14 @@ export function startIconVerification(gameName: string, tagLine: string): Promis
 
 export function checkIconVerification(): Promise<{ verified: boolean; riotId?: RiotId }> {
   return postJson("/api/verify/check", {});
+}
+
+export function fetchUnverifiedReviewMatches(): Promise<UnverifiedReviewCandidate[]> {
+  return getJson("/api/verify/unverified-reviews");
+}
+
+export function reconcileReviews(
+  confirmedReviewIds: string[],
+): Promise<{ confirmed: number; rejected: number; skipped: number }> {
+  return postJson("/api/verify/reconcile-reviews", { confirmedReviewIds });
 }

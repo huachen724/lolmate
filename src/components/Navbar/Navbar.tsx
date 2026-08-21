@@ -5,6 +5,7 @@ import { signOut } from "../../lib/session";
 import { SearchBar } from "../SearchBar/SearchBar";
 import { SignInModal } from "../SignInModal/SignInModal";
 import { RiotVerifyModal } from "../RiotVerifyModal/RiotVerifyModal";
+import { ReconcileReviewsModal } from "../ReconcileReviewsModal/ReconcileReviewsModal";
 import { ThemeToggle } from "../ThemeToggle/ThemeToggle";
 import logo from "../../assets/logo.png";
 import "./Navbar.css";
@@ -14,6 +15,7 @@ export function Navbar() {
   const navigate = useNavigate();
   const [showSignIn, setShowSignIn] = useState(false);
   const [showVerify, setShowVerify] = useState(false);
+  const [showReconcile, setShowReconcile] = useState(false);
 
   async function handleSignOut() {
     await signOut();
@@ -80,6 +82,15 @@ export function Navbar() {
           onClose={() => setShowVerify(false)}
           onVerified={() => {
             setShowVerify(false);
+            setShowReconcile(true);
+          }}
+        />
+      )}
+
+      {showReconcile && (
+        <ReconcileReviewsModal
+          onClose={() => {
+            setShowReconcile(false);
             navigate("/dashboard");
           }}
         />

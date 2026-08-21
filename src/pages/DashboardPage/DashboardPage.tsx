@@ -5,6 +5,7 @@ import { fetchProfile, fetchReviewsBatch } from "../../lib/api";
 import { ChampionAvatar } from "../../components/ChampionAvatar/ChampionAvatar";
 import { ReviewForm } from "../../components/ReviewForm/ReviewForm";
 import { RiotVerifyModal } from "../../components/RiotVerifyModal/RiotVerifyModal";
+import { ReconcileReviewsModal } from "../../components/ReconcileReviewsModal/ReconcileReviewsModal";
 import { LoadingState } from "../../components/Spinner/Spinner";
 import type { MatchParticipant, MatchSummary, Review, RiotId } from "../../types";
 import "./DashboardPage.css";
@@ -16,6 +17,7 @@ import "./DashboardPage.css";
 export function DashboardPage() {
   const session = useSession();
   const [showVerify, setShowVerify] = useState(false);
+  const [showReconcile, setShowReconcile] = useState(false);
   const [state, setState] = useState<
     { status: "loading" } | { status: "error"; message: string } | { status: "ready"; matches: MatchSummary[] }
   >({ status: "loading" });
@@ -89,7 +91,16 @@ export function DashboardPage() {
             Verify Riot account
           </button>
         </div>
-        {showVerify && <RiotVerifyModal onClose={() => setShowVerify(false)} onVerified={() => setShowVerify(false)} />}
+        {showVerify && (
+          <RiotVerifyModal
+            onClose={() => setShowVerify(false)}
+            onVerified={() => {
+              setShowVerify(false);
+              setShowReconcile(true);
+            }}
+          />
+        )}
+        {showReconcile && <ReconcileReviewsModal onClose={() => setShowReconcile(false)} />}
       </div>
     );
   }

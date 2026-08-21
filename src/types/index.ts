@@ -164,6 +164,21 @@ export interface ReviewHistoryEntry {
   archivedAt: number; // epoch ms
 }
 
+// An unverified review claiming to be the just-verified user's exact
+// puuid, surfaced by GET /api/verify/unverified-reviews for the post-
+// verification reconciliation flow (see components/ReconcileReviewsModal).
+// targetRiotId can be null if that account's Riot ID couldn't be resolved
+// (e.g. a transient Riot API failure) — still shown, just without a name.
+export interface UnverifiedReviewCandidate {
+  id: string;
+  targetRiotId: RiotId | null;
+  displayName: string;
+  body: string;
+  scores: ReviewScores;
+  sharedGamesWithTarget: number;
+  createdAt: number; // epoch ms
+}
+
 export interface ReviewSummary {
   // Per-category average, or null if nobody has rated that category yet.
   averageScores: Record<ReviewCategory, number | null>;

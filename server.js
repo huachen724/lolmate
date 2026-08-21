@@ -481,6 +481,123 @@ app.post("/api/verify/check", requireAuth, async (req, res) => {
   }
 });
 
+// Every non-deleted unverified review claiming this now-verified user's
+// exact puuid, across every target — shown right after verification so
+// they can reclaim reviews that are genuinely theirs (written before they
+// verified) and reject ones that aren't (someone else's impersonation).
+app.get("/api/verify/unverified-reviews", requireAuth, async (req, res) => {
+  try {
+    const user = await findUserById(req.userId);
+    if (!user?.riot_puuid) {
+      return res.status(400).json({ error: "Complete Riot account verification first." });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT * FROM reviews
+       WHERE reviewer_kind = 'unverified' AND reviewer_claimed_puuid = $1 AND deleted_at IS NULL
+       ORDER BY created_at DESC`,
+      [user.riot_puuid],
+    );
+
+    const candidates = await Promise.all(
+      rows.map(async (row) => {
+        const account = await getAccountByPuuid(row.target_puuid).catch(() => null);
+        return {
+          id: row.id,
+          targetRiotId: account ? { gameName: account.gameName, tagLine: account.tagLine } : null,
+          displayName: row.reviewer_display_name,
+          body: row.body,
+          scores: {
+            mapAwareness: row.map_awareness,
+            mechanicalSkill: row.mechanical_skill,
+            teamwork: row.teamwork,
+            communication: row.communication,
+            sportsmanship: row.sportsmanship,
+          },
+          sharedGamesWithTarget: row.shared_games_with_target,
+          createdAt: new Date(row.created_at).getTime(),
+        };
+      }),
+    );
+
+    res.json(candidates);
+  } catch (error) {
+    respondWithRiotError(res, error);
+  }
+});
+
+// Body: { confirmedReviewIds: string[] }. Re-derives the true candidate set
+// itself (same query as above) rather than trusting the client's list
+// beyond *which* of those real candidates got confirmed — a confirmed one
+// converts to verified in place (votes/id/created_at kept, prior state
+// archived like any other edit); anything else in the candidate set that
+// wasn't confirmed is understood as "not mine" and soft-deleted, per the
+// explicit confirm-by-exception design (see components/ReconcileReviewsModal).
+app.post("/api/verify/reconcile-reviews", requireAuth, async (req, res) => {
+  const { confirmedReviewIds } = req.body || {};
+  if (!Array.isArray(confirmedReviewIds)) {
+    return res.status(400).json({ error: "confirmedReviewIds must be an array." });
+  }
+
+  try {
+    const user = await findUserById(req.userId);
+    if (!user?.riot_puuid) {
+      return res.status(400).json({ error: "Complete Riot account verification first." });
+    }
+
+    const { rows: candidates } = await pool.query(
+      `SELECT * FROM reviews
+       WHERE reviewer_kind = 'unverified' AND reviewer_claimed_puuid = $1 AND deleted_at IS NULL`,
+      [user.riot_puuid],
+    );
+
+    const confirmedSet = new Set(confirmedReviewIds.filter((id) => typeof id === "string"));
+    let confirmed = 0;
+    let rejected = 0;
+    let skipped = 0;
+
+    for (const candidate of candidates) {
+      if (!confirmedSet.has(candidate.id)) {
+        await pool.query("UPDATE reviews SET deleted_at = now() WHERE id = $1", [candidate.id]);
+        rejected += 1;
+        continue;
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await archiveReviewVersion(client, candidate);
+        await client.query(
+          `UPDATE reviews SET
+             reviewer_kind = 'verified', reviewer_key = $1, reviewer_game_name = $2, reviewer_tag_line = $3,
+             reviewer_display_name = NULL, reviewer_claimed_puuid = NULL, edited_at = now()
+           WHERE id = $4`,
+          [user.riot_puuid, user.riot_game_name, user.riot_tag_line, candidate.id],
+        );
+        await client.query("COMMIT");
+        confirmed += 1;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        // A genuine conflict (this user already has a separate verified
+        // review of the same target, e.g. from the override path) — skip
+        // it rather than failing the whole batch.
+        if (error.code === "23505") {
+          skipped += 1;
+        } else {
+          throw error;
+        }
+      } finally {
+        client.release();
+      }
+    }
+
+    res.json({ confirmed, rejected, skipped });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to reconcile reviews." });
+  }
+});
+
 // --- Reviews (our data, never Riot's) -------------------------------------
 
 // `voterKey` is the requester's own identity (puuid if signed in, otherwise
