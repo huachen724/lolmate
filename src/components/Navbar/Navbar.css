@@ -39,6 +39,10 @@
     --border-light: #1f4d85;
     --text-dim: #a9c4e8;
     --text-faint: #6e88ac;
+    --accent: #a5f3fc;
+    --accent-strong: #22d3ee;
+    --accent-soft: rgba(165, 243, 252, 0.22);
+    --on-accent: #063544;
 
     background: #0c2340;
   }
@@ -52,6 +56,10 @@
   --border-light: #1f4d85;
   --text-dim: #a9c4e8;
   --text-faint: #6e88ac;
+  --accent: #a5f3fc;
+  --accent-strong: #22d3ee;
+  --accent-soft: rgba(165, 243, 252, 0.22);
+  --on-accent: #063544;
 
   background: #0c2340;
 }
@@ -75,15 +83,11 @@
 }
 
 .navbar-logo-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 13px;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex: none;
 }
 
 .navbar-links {

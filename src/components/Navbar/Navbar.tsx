@@ -6,6 +6,7 @@ import { SearchBar } from "../SearchBar/SearchBar";
 import { SignInModal } from "../SignInModal/SignInModal";
 import { RiotVerifyModal } from "../RiotVerifyModal/RiotVerifyModal";
 import { ThemeToggle } from "../ThemeToggle/ThemeToggle";
+import logo from "../../assets/logo.png";
 import "./Navbar.css";
 
 export function Navbar() {
@@ -25,7 +26,7 @@ export function Navbar() {
     <header className="navbar">
       <div className="navbar-inner">
         <Link to="/" className="navbar-logo">
-          <span className="navbar-logo-mark">LM</span>
+          <img className="navbar-logo-mark" src={logo} alt="" />
           LolMate
         </Link>
 
