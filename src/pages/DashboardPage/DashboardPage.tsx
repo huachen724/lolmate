@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate, Link } from "react-router-dom";
 import { useSession } from "../../hooks/useSession";
 import { fetchProfile, fetchReviewsBatch } from "../../lib/api";
+import { PROFILE_REFRESH_COOLDOWN_MS, readProfileCache, writeProfileCache } from "../../lib/profileCache";
 import { ChampionAvatar } from "../../components/ChampionAvatar/ChampionAvatar";
+import { RefreshStatus } from "../../components/RefreshStatus/RefreshStatus";
 import { ReviewForm } from "../../components/ReviewForm/ReviewForm";
 import { RiotVerifyModal } from "../../components/RiotVerifyModal/RiotVerifyModal";
 import { ReconcileReviewsModal } from "../../components/ReconcileReviewsModal/ReconcileReviewsModal";
@@ -19,10 +21,18 @@ export function DashboardPage() {
   const [showVerify, setShowVerify] = useState(false);
   const [showReconcile, setShowReconcile] = useState(false);
   const [state, setState] = useState<
-    { status: "loading" } | { status: "error"; message: string } | { status: "ready"; matches: MatchSummary[] }
+    | { status: "loading" }
+    | { status: "error"; message: string }
+    | { status: "ready"; matches: MatchSummary[]; fetchedAt: number }
   >({ status: "loading" });
   const [reviewTarget, setReviewTarget] = useState<{ puuid: string; riotId: RiotId } | null>(null);
   const [reviewsByTeammate, setReviewsByTeammate] = useState<Record<string, Review[]>>({});
+  // Same bypass-cache-once pattern as PlayerProfilePage's forceRefresh: a
+  // plain nonce dependency can't distinguish "user asked for a real
+  // refresh" from "riotGameName/riotTagLine changed", so this ref is what
+  // actually tells the fetch effect to skip the cache for one run.
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const forceRefetchRef = useRef(false);
 
   const riotPuuid = session?.riotPuuid ?? null;
   const riotGameName = session?.riotGameName ?? null;
@@ -30,10 +40,29 @@ export function DashboardPage() {
 
   useEffect(() => {
     if (!riotPuuid || !riotGameName || !riotTagLine) return;
+    const bypassCache = forceRefetchRef.current;
+    forceRefetchRef.current = false;
+
+    if (!bypassCache) {
+      const cached = readProfileCache(riotGameName, riotTagLine);
+      if (cached && Date.now() - cached.fetchedAt < PROFILE_REFRESH_COOLDOWN_MS) {
+        setState({ status: "ready", matches: cached.matches, fetchedAt: cached.fetchedAt });
+        return;
+      }
+    }
+
     let cancelled = false;
+    setState({ status: "loading" });
     fetchProfile(riotGameName, riotTagLine)
-      .then(({ matches }) => {
-        if (!cancelled) setState({ status: "ready", matches });
+      .then(({ profile, matches }) => {
+        if (cancelled) return;
+        const fetchedAt = Date.now();
+        setState({ status: "ready", matches, fetchedAt });
+        // Preserve isLive from an existing cache entry (e.g. one
+        // PlayerProfilePage already wrote for this same Riot ID) rather
+        // than clobbering it — this page never calls fetchLiveGame itself.
+        const existing = readProfileCache(riotGameName, riotTagLine);
+        writeProfileCache(riotGameName, riotTagLine, { profile, matches, isLive: existing?.isLive ?? false });
       })
       .catch((error: unknown) => {
         if (!cancelled) setState({ status: "error", message: error instanceof Error ? error.message : "Couldn't load your matches." });
@@ -41,7 +70,12 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [riotPuuid, riotGameName, riotTagLine]);
+  }, [riotPuuid, riotGameName, riotTagLine, refreshNonce]);
+
+  function forceRefresh() {
+    forceRefetchRef.current = true;
+    setRefreshNonce((n) => n + 1);
+  }
 
   // Every other participant from your most recent match — teammates and
   // opponents alike. Team no longer gates review eligibility (the backend
@@ -129,6 +163,7 @@ export function DashboardPage() {
           Welcome back, {session.riotGameName}
           <span className="faint">#{session.riotTagLine}</span>
         </h1>
+        <RefreshStatus fetchedAt={state.fetchedAt} cooldownMs={PROFILE_REFRESH_COOLDOWN_MS} onRefresh={forceRefresh} />
         <p className="muted">No recent ranked matches found for this account yet.</p>
       </div>
     );
@@ -142,6 +177,7 @@ export function DashboardPage() {
         Welcome back, {session.riotGameName}
         <span className="faint">#{session.riotTagLine}</span>
       </h1>
+      <RefreshStatus fetchedAt={state.fetchedAt} cooldownMs={PROFILE_REFRESH_COOLDOWN_MS} onRefresh={forceRefresh} />
 
       <section className="card dashboard-recent-match">
         <h2>Your most recent match</h2>

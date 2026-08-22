@@ -52,16 +52,8 @@
   gap: 4px;
 }
 
-.profile-refresh-row {
-  display: flex;
-  justify-content: flex-end;
+.profile-refresh-status {
   margin-top: -12px;
-  font-size: 12.5px;
-}
-
-.profile-refresh-btn {
-  font-size: 12.5px;
-  padding: 4px 10px;
 }
 
 .profile-stats {

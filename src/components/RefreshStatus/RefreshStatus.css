@@ -1,0 +1,10 @@
+.refresh-status-row {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 12.5px;
+}
+
+.refresh-status-btn {
+  font-size: 12.5px;
+  padding: 4px 10px;
+}

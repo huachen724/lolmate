@@ -6,11 +6,11 @@ import { computeReviewSummary } from "../../lib/reviewStats";
 import { addRecentSearch, getOrCreateUnverifiedReviewerId } from "../../lib/session";
 import { profileIconUrl, useDdragonVersion } from "../../lib/ddragon";
 import { PROFILE_REFRESH_COOLDOWN_MS, readProfileCache, writeProfileCache } from "../../lib/profileCache";
-import { timeAgo } from "../../lib/time";
 import { ChampionAvatar } from "../../components/ChampionAvatar/ChampionAvatar";
 import { RankBadge } from "../../components/RankBadge/RankBadge";
 import { LoadingState } from "../../components/Spinner/Spinner";
 import { MatchHistoryCard } from "../../components/MatchHistoryCard/MatchHistoryCard";
+import { RefreshStatus } from "../../components/RefreshStatus/RefreshStatus";
 import { ReviewSummaryPanel } from "../../components/ReviewSummaryPanel/ReviewSummaryPanel";
 import { ReviewCard } from "../../components/ReviewCard/ReviewCard";
 import { ReviewForm } from "../../components/ReviewForm/ReviewForm";
@@ -185,7 +185,9 @@ export function PlayerProfilePage() {
         )}
       </header>
 
-      <ProfileRefreshStatus fetchedAt={fetchedAt} onRefresh={forceRefresh} />
+      <div className="profile-refresh-status">
+        <RefreshStatus fetchedAt={fetchedAt} cooldownMs={PROFILE_REFRESH_COOLDOWN_MS} onRefresh={forceRefresh} />
+      </div>
 
       <section className="profile-stats card">
         <div className="profile-stat">
@@ -261,44 +263,6 @@ export function PlayerProfilePage() {
           }}
         />
       )}
-    </div>
-  );
-}
-
-// "Data as of Xm ago" plus a manual refresh action, disabled with a live
-// countdown until PROFILE_REFRESH_COOLDOWN_MS has elapsed since the last
-// real Riot fetch — see lib/profileCache.ts for why this exists.
-function ProfileRefreshStatus({ fetchedAt, onRefresh }: { fetchedAt: number; onRefresh: () => void }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const remaining = fetchedAt + PROFILE_REFRESH_COOLDOWN_MS - Date.now();
-    if (remaining <= 0) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [fetchedAt]);
-
-  const remainingMs = Math.max(0, fetchedAt + PROFILE_REFRESH_COOLDOWN_MS - now);
-
-  if (remainingMs === 0) {
-    return (
-      <div className="profile-refresh-row">
-        <button type="button" className="btn btn-ghost profile-refresh-btn" onClick={onRefresh}>
-          ↻ Refresh
-        </button>
-      </div>
-    );
-  }
-
-  const totalSeconds = Math.ceil(remainingMs / 1000);
-  const mm = Math.floor(totalSeconds / 60);
-  const ss = String(totalSeconds % 60).padStart(2, "0");
-
-  return (
-    <div className="profile-refresh-row">
-      <span className="faint">
-        Data as of {timeAgo(fetchedAt)} · next refresh available in {mm}:{ss}
-      </span>
     </div>
   );
 }
