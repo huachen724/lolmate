@@ -8,9 +8,13 @@
 }
 
 .rank-badge-emblem {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   flex: none;
+  /* CommunityDragon's rank emblem PNGs aren't square (extra transparent
+     padding varies by tier) — without object-fit, forcing a fixed
+     width/height stretches the glyph instead of scaling it proportionally. */
+  object-fit: contain;
 }
 
 .rank-badge-text {
