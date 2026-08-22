@@ -193,6 +193,54 @@ async function loadChampionData() {
 }
 
 loadChampionData().catch((error) => console.error("[SERVER] Failed to load Data Dragon champion data:", error));
+
+// Riot's queue-id reference (no API key needed) — match-v5's info.queueId
+// and spectator-v5's gameQueueConfigId are both numeric and mean nothing on
+// their own; this is what turns 420 into "Ranked Solo/Duo" instead of the
+// coarse gameMode string ("CLASSIC" for ranked, normal draft, AND normal
+// blind alike). Loaded live rather than hardcoded because Riot adds/retires
+// queue ids over time for rotating and temporary modes — a queue id with no
+// entry here just falls back to gameMode via labelForQueue below instead of
+// breaking.
+let queueIdToLabel = {};
+
+// A handful of common queues get a short, UI-friendly label instead of
+// Riot's full description ("5v5 Ranked Solo games"). Anything not listed
+// here falls back to Riot's own description (trimmed), so new queue ids
+// still show something readable before anyone updates this list.
+const QUEUE_LABEL_OVERRIDES = {
+  400: "Normal Draft",
+  420: "Ranked Solo/Duo",
+  430: "Normal Blind",
+  440: "Ranked Flex",
+  450: "ARAM",
+  480: "Swiftplay",
+  1700: "Arena",
+  1710: "Arena",
+};
+
+async function loadQueueData() {
+  const queues = await fetch("https://static.developer.riotgames.com/docs/lol/queues.json").then((r) => r.json());
+  queueIdToLabel = Object.fromEntries(
+    queues
+      .filter((q) => q.queueId != null)
+      .map((q) => [
+        q.queueId,
+        QUEUE_LABEL_OVERRIDES[q.queueId] ??
+          ((q.description || "").replace(/^5v5 /, "").replace(/ games$/, "") || `Queue ${q.queueId}`),
+      ]),
+  );
+  console.log(`[SERVER] Loaded ${Object.keys(queueIdToLabel).length} queue types from Riot's queue reference`);
+}
+
+// Falls back to the match's own gameMode (always present) when a queue id
+// isn't in the reference yet — e.g. queueIdToLabel hasn't loaded, or Riot
+// just shipped a new/temporary mode this app doesn't know about.
+function labelForQueue(queueId, fallbackGameMode) {
+  return queueIdToLabel[queueId] ?? fallbackGameMode;
+}
+
+loadQueueData().catch((error) => console.error("[SERVER] Failed to load Riot queue reference:", error));
 runMigrations().catch((error) => console.error("[SERVER] Failed to run DB migrations:", error));
 
 // --- Helpers to shape Riot responses into what the frontend expects -----
@@ -213,7 +261,8 @@ function toMatchSummary(matchId, match) {
   const info = match.info;
   return {
     matchId,
-    queueType: info.gameMode === "CLASSIC" ? "Ranked/Normal" : info.gameMode,
+    queueId: info.queueId,
+    queueType: labelForQueue(info.queueId, info.gameMode),
     durationSeconds: info.gameDuration,
     timestamp: info.gameStartTimestamp,
     participants: info.participants.map((p) => ({
@@ -630,6 +679,7 @@ function rowToReview(row) {
     upvotes: Number(row.upvotes ?? 0),
     downvotes: Number(row.downvotes ?? 0),
     sharedGamesWithTarget: row.shared_games_with_target,
+    sharedGamesByMode: row.shared_games_by_mode ?? {},
     myVote: row.my_vote ?? null,
     isMine: row.is_mine ?? false,
   };
@@ -651,6 +701,7 @@ function historyRowToEntry(row) {
     },
     body: row.body,
     sharedGamesWithTarget: row.shared_games_with_target,
+    sharedGamesByMode: row.shared_games_by_mode ?? {},
     archivedAt: new Date(row.archived_at).getTime(),
   };
 }
@@ -663,8 +714,8 @@ async function archiveReviewVersion(client, reviewRow) {
     `INSERT INTO review_edit_history (
        id, review_id, reviewer_kind, reviewer_key, reviewer_game_name, reviewer_tag_line,
        reviewer_display_name, body, map_awareness, mechanical_skill, teamwork,
-       communication, sportsmanship, shared_games_with_target
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+       communication, sportsmanship, shared_games_with_target, shared_games_by_mode
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
     [
       `hist-${crypto.randomUUID()}`,
       reviewRow.id,
@@ -680,6 +731,7 @@ async function archiveReviewVersion(client, reviewRow) {
       reviewRow.communication,
       reviewRow.sportsmanship,
       reviewRow.shared_games_with_target,
+      JSON.stringify(reviewRow.shared_games_by_mode ?? {}),
     ],
   );
 }
@@ -818,7 +870,7 @@ app.get("/api/live/:gameName/:tagLine", async (req, res) => {
       live: true,
       game: {
         gameId: String(activeGame.gameId),
-        queueType: activeGame.gameMode,
+        queueType: labelForQueue(activeGame.gameQueueConfigId, activeGame.gameMode),
         gameStartTimestamp: activeGame.gameStartTime,
         participants,
       },
@@ -888,6 +940,7 @@ app.post("/api/reviews", async (req, res) => {
     scores,
     body,
     sharedGamesWithTarget,
+    sharedGamesByMode,
   } = req.body || {};
 
   // Star ratings are optional (see db.js) — only the written body is
@@ -966,8 +1019,8 @@ app.post("/api/reviews", async (req, res) => {
                reviewer_kind = 'verified', reviewer_key = $1, reviewer_game_name = $2, reviewer_tag_line = $3,
                reviewer_anonymous = $4, reviewer_display_name = NULL, reviewer_claimed_puuid = NULL,
                body = $5, map_awareness = $6, mechanical_skill = $7, teamwork = $8, communication = $9,
-               sportsmanship = $10, shared_games_with_target = $11, edited_at = now()
-             WHERE id = $12
+               sportsmanship = $10, shared_games_with_target = $11, shared_games_by_mode = $12, edited_at = now()
+             WHERE id = $13
              RETURNING *`,
             [
               reviewerKey,
@@ -981,6 +1034,7 @@ app.post("/api/reviews", async (req, res) => {
               s.communication ?? null,
               s.sportsmanship ?? null,
               sharedGamesWithTarget ?? 0,
+              JSON.stringify(sharedGamesByMode ?? {}),
               claimed.id,
             ],
           );
@@ -1013,8 +1067,8 @@ app.post("/api/reviews", async (req, res) => {
       `INSERT INTO reviews (
          id, target_puuid, reviewer_key, reviewer_kind, reviewer_game_name, reviewer_tag_line,
          reviewer_anonymous, reviewer_display_name, reviewer_claimed_puuid, map_awareness, mechanical_skill,
-         teamwork, communication, sportsmanship, body, shared_games_with_target
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         teamwork, communication, sportsmanship, body, shared_games_with_target, shared_games_by_mode
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        RETURNING *`,
       [
         id,
@@ -1033,6 +1087,7 @@ app.post("/api/reviews", async (req, res) => {
         s.sportsmanship ?? null,
         body,
         sharedGamesWithTarget ?? 0,
+        JSON.stringify(sharedGamesByMode ?? {}),
       ],
     );
     res.status(201).json(rowToReview({ ...rows[0], upvotes: 0, downvotes: 0, my_vote: null, is_mine: true }));
@@ -1056,7 +1111,7 @@ app.post("/api/reviews", async (req, res) => {
 // permanent. The prior state is archived to review_edit_history first so
 // "view previous version" has something to show.
 app.put("/api/reviews/:id", async (req, res) => {
-  const { scores, body, sharedGamesWithTarget, reviewerAnonymous } = req.body || {};
+  const { scores, body, sharedGamesWithTarget, sharedGamesByMode, reviewerAnonymous } = req.body || {};
   if (!body || !body.trim()) {
     return res.status(400).json({ error: "Review body is required." });
   }
@@ -1085,9 +1140,10 @@ app.put("/api/reviews/:id", async (req, res) => {
       `UPDATE reviews SET
          body = $1, map_awareness = $2, mechanical_skill = $3, teamwork = $4,
          communication = $5, sportsmanship = $6, shared_games_with_target = $7,
-         reviewer_anonymous = CASE WHEN reviewer_kind = 'verified' THEN $8 ELSE reviewer_anonymous END,
+         shared_games_by_mode = $8,
+         reviewer_anonymous = CASE WHEN reviewer_kind = 'verified' THEN $9 ELSE reviewer_anonymous END,
          edited_at = now()
-       WHERE id = $9
+       WHERE id = $10
        RETURNING *`,
       [
         body,
@@ -1097,6 +1153,7 @@ app.put("/api/reviews/:id", async (req, res) => {
         s.communication ?? null,
         s.sportsmanship ?? null,
         sharedGamesWithTarget ?? existing.shared_games_with_target,
+        JSON.stringify(sharedGamesByMode ?? existing.shared_games_by_mode ?? {}),
         !!reviewerAnonymous,
         req.params.id,
       ],

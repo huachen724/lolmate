@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS reviews (
   sportsmanship smallint CHECK (sportsmanship BETWEEN 1 AND 5),
   body text NOT NULL,
   shared_games_with_target int NOT NULL DEFAULT 0,
+  -- Per-mode breakdown of shared_games_with_target, e.g.
+  -- {"Ranked Solo/Duo": 2, "ARAM": 1} — snapshotted at submission time
+  -- alongside the plain count above, never recalculated after the fact.
+  shared_games_by_mode jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   edited_at timestamptz,
   deleted_at timestamptz,
@@ -81,6 +85,7 @@ CREATE TABLE IF NOT EXISTS review_edit_history (
   communication smallint,
   sportsmanship smallint,
   shared_games_with_target int NOT NULL,
+  shared_games_by_mode jsonb NOT NULL DEFAULT '{}'::jsonb,
   archived_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -156,6 +161,13 @@ ALTER TABLE reviews ADD COLUMN IF NOT EXISTS reviewer_claimed_puuid text;
 CREATE UNIQUE INDEX IF NOT EXISTS reviews_unverified_claimed_puuid_idx
   ON reviews (target_puuid, reviewer_claimed_puuid)
   WHERE reviewer_kind = 'unverified' AND deleted_at IS NULL;
+
+-- Same ordering rule as reviewer_claimed_puuid above: reviews and
+-- review_edit_history are already-deployed tables, so SCHEMA's CREATE
+-- TABLE IF NOT EXISTS is a no-op against them — these columns only get
+-- added via this migration.
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS shared_games_by_mode jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE review_edit_history ADD COLUMN IF NOT EXISTS shared_games_by_mode jsonb NOT NULL DEFAULT '{}'::jsonb;
 `;
 
 export async function runMigrations() {
