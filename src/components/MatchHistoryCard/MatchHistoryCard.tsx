@@ -17,7 +17,8 @@ function timeAgo(timestamp: number): string {
 export function MatchHistoryCard({ match, focusPuuid }: { match: MatchSummary; focusPuuid: string }) {
   const self = match.participants.find((p) => p.puuid === focusPuuid);
   if (!self) return null;
-  const others = match.participants.filter((p) => p.puuid !== focusPuuid);
+  const teammates = match.participants.filter((p) => p.puuid !== focusPuuid && p.teamId === self.teamId);
+  const enemies = match.participants.filter((p) => p.teamId !== self.teamId);
   const kda = self.deaths === 0 ? "Perfect" : ((self.kills + self.assists) / self.deaths).toFixed(1);
 
   return (
@@ -42,16 +43,30 @@ export function MatchHistoryCard({ match, focusPuuid }: { match: MatchSummary; f
       </div>
 
       <div className="match-history-others">
-        {others.slice(0, 9).map((p) => (
-          <Link
-            key={p.puuid}
-            to={`/profile/${encodeURIComponent(p.riotId.gameName)}/${encodeURIComponent(p.riotId.tagLine)}`}
-            className={`match-history-chip ${p.teamId === self.teamId ? "" : "match-history-chip-enemy"}`}
-            title={`${p.riotId.gameName}#${p.riotId.tagLine} — ${p.championName}`}
-          >
-            {p.riotId.gameName}
-          </Link>
-        ))}
+        <div className="match-history-team-row">
+          {teammates.map((p) => (
+            <Link
+              key={p.puuid}
+              to={`/profile/${encodeURIComponent(p.riotId.gameName)}/${encodeURIComponent(p.riotId.tagLine)}`}
+              className="match-history-chip"
+              title={`${p.riotId.gameName}#${p.riotId.tagLine} — ${p.championName}`}
+            >
+              {p.riotId.gameName}
+            </Link>
+          ))}
+        </div>
+        <div className="match-history-team-row">
+          {enemies.map((p) => (
+            <Link
+              key={p.puuid}
+              to={`/profile/${encodeURIComponent(p.riotId.gameName)}/${encodeURIComponent(p.riotId.tagLine)}`}
+              className="match-history-chip match-history-chip-enemy"
+              title={`${p.riotId.gameName}#${p.riotId.tagLine} — ${p.championName}`}
+            >
+              {p.riotId.gameName}
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );
