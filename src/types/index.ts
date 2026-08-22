@@ -63,6 +63,12 @@ export interface MatchParticipant {
 
 export interface MatchSummary {
   matchId: string;
+  // Riot's numeric queue id (match-v5's info.queueId) — queueType below is
+  // already the resolved display label (see server.js's labelForQueue),
+  // this is only here so the client can group shared games by mode itself
+  // (see lib/reviewStats.ts's countSharedGamesByMode) without re-deriving
+  // the label from scratch.
+  queueId: number;
   queueType: string;
   durationSeconds: number;
   timestamp: number; // epoch ms
@@ -143,6 +149,10 @@ export interface Review {
   // reviews are only allowed while they've played together within
   // REVIEW_ELIGIBILITY_WINDOW_MS (see lib/constants.ts).
   sharedGamesWithTarget: number;
+  // Per-mode breakdown of sharedGamesWithTarget, e.g. { "Ranked Solo/Duo":
+  // 2, "ARAM": 1} — a submission-time snapshot like the count itself, so
+  // reviews written before this field existed just have an empty object.
+  sharedGamesByMode: Record<string, number>;
   // Computed server-side relative to whichever reviewerKey/voterKey the
   // request was made with — never derived from other people's keys, which
   // are never sent to the client at all (see server.js's rowToReview).
@@ -161,6 +171,7 @@ export interface ReviewHistoryEntry {
   scores: ReviewScores;
   body: string;
   sharedGamesWithTarget: number;
+  sharedGamesByMode: Record<string, number>;
   archivedAt: number; // epoch ms
 }
 

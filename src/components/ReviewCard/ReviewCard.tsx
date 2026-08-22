@@ -22,6 +22,15 @@ function historyEntryLabel(entry: ReviewHistoryEntry): string {
   return entry.reviewer.kind === "verified" ? entry.reviewer.riotId.gameName : entry.reviewer.displayName;
 }
 
+// Reviews written before per-mode tracking existed have an empty object —
+// undefined here means no `title` attribute at all, not an empty tooltip.
+function modeBreakdownTitle(byMode: Record<string, number> | undefined): string | undefined {
+  if (!byMode) return undefined;
+  const entries = Object.entries(byMode);
+  if (entries.length === 0) return undefined;
+  return entries.map(([mode, count]) => `${count} ${mode}`).join(", ");
+}
+
 interface ReviewCardProps {
   review: Review;
   onDeleted?: (reviewId: string) => void;
@@ -96,7 +105,9 @@ export function ReviewCard({ review, onDeleted, onEdit }: ReviewCardProps) {
         <div className="review-card-reviewer">
           <span className="review-card-name">{name}</span>
           {verified && <VerifiedBadge />}
-          <span className="tag">{review.sharedGamesWithTarget} games together</span>
+          <span className="tag" title={modeBreakdownTitle(review.sharedGamesByMode)}>
+            {review.sharedGamesWithTarget} games together
+          </span>
         </div>
         <span className="faint">
           {timeAgo(review.createdAt)}

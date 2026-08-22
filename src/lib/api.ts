@@ -110,6 +110,7 @@ export interface NewReviewPayload {
   scores: ReviewScores;
   body: string;
   sharedGamesWithTarget: number;
+  sharedGamesByMode?: Record<string, number>;
 }
 
 // `overrodeExistingReview` is set when this submission replaced an
@@ -126,6 +127,7 @@ export interface ReviewUpdatePayload {
   scores: ReviewScores;
   body: string;
   sharedGamesWithTarget: number;
+  sharedGamesByMode?: Record<string, number>;
 }
 
 export function updateReview(reviewId: string, payload: ReviewUpdatePayload): Promise<Review> {

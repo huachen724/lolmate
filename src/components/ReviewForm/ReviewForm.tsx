@@ -3,7 +3,7 @@ import { REVIEW_CATEGORIES } from "../../types";
 import type { AuthUser, MatchSummary, Review, ReviewCategory, ReviewScores, RiotId } from "../../types";
 import { REVIEW_BODY_MAX_LENGTH, REVIEW_ELIGIBILITY_WINDOW_MS } from "../../lib/constants";
 import { ApiError, fetchAccount, submitReview, updateReview } from "../../lib/api";
-import { countSharedGames, mostRecentSharedGameTimestamp } from "../../lib/reviewStats";
+import { countSharedGames, countSharedGamesByMode, mostRecentSharedGameTimestamp } from "../../lib/reviewStats";
 import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
 import { timeAgo } from "../../lib/time";
 import { RatingStars } from "../RatingStars/RatingStars";
@@ -157,6 +157,7 @@ export function ReviewForm({
 
   const reviewerPuuid = verifiedIdentity ? verifiedIdentity.puuid : lookupState.status === "found" ? lookupState.puuid : null;
   const sharedGames = reviewerPuuid ? countSharedGames(targetMatches, target.puuid, reviewerPuuid) : 0;
+  const sharedGamesByMode = reviewerPuuid ? countSharedGamesByMode(targetMatches, target.puuid, reviewerPuuid) : {};
   const lastSharedGameAt = reviewerPuuid
     ? mostRecentSharedGameTimestamp(targetMatches, target.puuid, reviewerPuuid)
     : null;
@@ -201,6 +202,7 @@ export function ReviewForm({
           scores: submittedScores,
           body: body.trim(),
           sharedGamesWithTarget: sharedGames,
+          sharedGamesByMode,
         });
         onUpdated?.(updated);
       } else {
@@ -222,6 +224,7 @@ export function ReviewForm({
           scores: submittedScores,
           body: body.trim(),
           sharedGamesWithTarget: sharedGames,
+          sharedGamesByMode,
         });
         if (review.overrodeExistingReview) {
           setSubmitState({ status: "override-notice", review });

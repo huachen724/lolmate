@@ -13,6 +13,19 @@ export function countSharedGames(matches: MatchSummary[], puuidA: string, puuidB
   ).length;
 }
 
+// Same shared-match filter as countSharedGames, grouped by each match's
+// queueType label (already resolved server-side, see server.js's
+// labelForQueue) instead of collapsed into one number. Submission-time
+// snapshot, same as countSharedGames itself — see ReviewForm.tsx.
+export function countSharedGamesByMode(matches: MatchSummary[], puuidA: string, puuidB: string): Record<string, number> {
+  const byMode: Record<string, number> = {};
+  for (const m of matches) {
+    if (!m.participants.some((p) => p.puuid === puuidA) || !m.participants.some((p) => p.puuid === puuidB)) continue;
+    byMode[m.queueType] = (byMode[m.queueType] ?? 0) + 1;
+  }
+  return byMode;
+}
+
 // Epoch ms of the most recent match in `matches` where both puuids appear,
 // or null if they've never shared one in this (recent-history-limited)
 // list. Drives the time-based review eligibility window — see ReviewForm
