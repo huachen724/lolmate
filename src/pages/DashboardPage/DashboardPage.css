@@ -36,11 +36,24 @@
   font-size: 14px;
 }
 
+.dashboard-group-title {
+  margin: 4px 0 -2px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 .dashboard-teammates {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-top: 6px;
+}
+
+.dashboard-enemy-tag {
+  background: var(--danger-soft);
+  color: var(--danger);
+  padding: 1px 6px;
+  font-size: 11px;
 }
 
 .dashboard-teammate-row {

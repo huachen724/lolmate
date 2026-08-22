@@ -47,7 +47,8 @@ you know who you're playing with before the match even ends.
   [Review lifecycle & integrity](#review-lifecycle--integrity)).
 - **Dashboard** — once your Riot account is verified, land on a dashboard
   showing your most recent match and a one-click prompt to review each
-  teammate from it.
+  teammate *or opponent* from it — eligibility is based on having shared a
+  match, not which side someone was on.
 - **Light/dark mode** — a manual toggle in the navbar overrides your OS
   preference; the choice is remembered per-browser and applied before first
   paint (no flash of the wrong theme).

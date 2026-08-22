@@ -43,20 +43,26 @@ export function DashboardPage() {
     };
   }, [riotPuuid, riotGameName, riotTagLine]);
 
-  const teammates: MatchParticipant[] =
+  // Every other participant from your most recent match — teammates and
+  // opponents alike. Team no longer gates review eligibility (the backend
+  // never checked it either; it only requires a shared match within the
+  // review window), so both groups get the same "Review" prompt here.
+  const others: MatchParticipant[] =
     state.status === "ready" && state.matches[0]
-      ? state.matches[0].participants.filter(
-          (p) => p.puuid !== riotPuuid && p.teamId === state.matches[0].participants.find((s) => s.puuid === riotPuuid)?.teamId,
-        )
+      ? state.matches[0].participants.filter((p) => p.puuid !== riotPuuid)
       : [];
+  const selfTeamId =
+    state.status === "ready" ? state.matches[0]?.participants.find((p) => p.puuid === riotPuuid)?.teamId : undefined;
+  const teammates = others.filter((p) => p.teamId === selfTeamId);
+  const opponents = others.filter((p) => p.teamId !== selfTeamId);
 
-  // Fetched once the teammate list is known, so the "Reviewed" disabled
+  // Fetched once the participant list is known, so the "Reviewed" disabled
   // state on each button reflects reality instead of assuming nobody's
   // been reviewed yet.
   useEffect(() => {
-    if (!riotPuuid || teammates.length === 0) return;
+    if (!riotPuuid || others.length === 0) return;
     let cancelled = false;
-    fetchReviewsBatch(teammates.map((t) => t.puuid), riotPuuid)
+    fetchReviewsBatch(others.map((t) => t.puuid), riotPuuid)
       .then((byPuuid) => {
         if (!cancelled) setReviewsByTeammate(byPuuid);
       })
@@ -146,39 +152,44 @@ export function DashboardPage() {
         </div>
 
         <p className="muted">
-          Played with {teammates.length} teammate{teammates.length === 1 ? "" : "s"}. Leave them a
-          review while it's fresh — reviews are only allowed if you've played with them in the past
+          Played with {teammates.length} teammate{teammates.length === 1 ? "" : "s"} and against{" "}
+          {opponents.length} opponent{opponents.length === 1 ? "" : "s"}. Leave them a review while
+          it's fresh — reviews are only allowed if you've played with (or against) them in the past
           week.
         </p>
 
-        <div className="dashboard-teammates">
-          {teammates.map((teammate) => {
-            const alreadyReviewed = (reviewsByTeammate[teammate.puuid] ?? []).some((r) => r.isMine);
-            return (
-              <div className="dashboard-teammate-row" key={teammate.puuid}>
-                <ChampionAvatar championName={teammate.championName} />
-                <div className="dashboard-teammate-info">
-                  <Link
-                    to={`/profile/${encodeURIComponent(teammate.riotId.gameName)}/${encodeURIComponent(teammate.riotId.tagLine)}`}
-                  >
-                    {teammate.riotId.gameName}
-                    <span className="faint">#{teammate.riotId.tagLine}</span>
-                  </Link>
-                  <span className="faint">
-                    {teammate.championName} · {teammate.kills}/{teammate.deaths}/{teammate.assists}
-                  </span>
-                </div>
-                <button
-                  className="btn btn-primary"
-                  disabled={alreadyReviewed}
-                  onClick={() => setReviewTarget({ puuid: teammate.puuid, riotId: teammate.riotId })}
-                >
-                  {alreadyReviewed ? "Reviewed" : "Review"}
-                </button>
-              </div>
-            );
-          })}
-        </div>
+        {teammates.length > 0 && (
+          <>
+            <h3 className="dashboard-group-title">Teammates</h3>
+            <div className="dashboard-teammates">
+              {teammates.map((p) => (
+                <ParticipantRow
+                  key={p.puuid}
+                  participant={p}
+                  alreadyReviewed={(reviewsByTeammate[p.puuid] ?? []).some((r) => r.isMine)}
+                  onReview={() => setReviewTarget({ puuid: p.puuid, riotId: p.riotId })}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {opponents.length > 0 && (
+          <>
+            <h3 className="dashboard-group-title">Opponents</h3>
+            <div className="dashboard-teammates">
+              {opponents.map((p) => (
+                <ParticipantRow
+                  key={p.puuid}
+                  participant={p}
+                  enemy
+                  alreadyReviewed={(reviewsByTeammate[p.puuid] ?? []).some((r) => r.isMine)}
+                  onReview={() => setReviewTarget({ puuid: p.puuid, riotId: p.riotId })}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </section>
 
       {reviewTarget && (
@@ -197,6 +208,42 @@ export function DashboardPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+function ParticipantRow({
+  participant,
+  enemy = false,
+  alreadyReviewed,
+  onReview,
+}: {
+  participant: MatchParticipant;
+  enemy?: boolean;
+  alreadyReviewed: boolean;
+  onReview: () => void;
+}) {
+  return (
+    <div className="dashboard-teammate-row">
+      <ChampionAvatar championName={participant.championName} />
+      <div className="dashboard-teammate-info">
+        <Link to={`/profile/${encodeURIComponent(participant.riotId.gameName)}/${encodeURIComponent(participant.riotId.tagLine)}`}>
+          {participant.riotId.gameName}
+          <span className="faint">#{participant.riotId.tagLine}</span>
+        </Link>
+        <span className="faint">
+          {participant.championName} · {participant.kills}/{participant.deaths}/{participant.assists}
+          {enemy && (
+            <>
+              {" · "}
+              <span className="tag dashboard-enemy-tag">Enemy</span>
+            </>
+          )}
+        </span>
+      </div>
+      <button className="btn btn-primary" disabled={alreadyReviewed} onClick={onReview}>
+        {alreadyReviewed ? "Reviewed" : "Review"}
+      </button>
     </div>
   );
 }
