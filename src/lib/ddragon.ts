@@ -54,6 +54,14 @@ export function profileIconUrl(profileIconId: number, version: string): string {
   return `https://ddragon.leagueoflegends.com/cdn/${version}/img/profileicon/${profileIconId}.png`;
 }
 
+// "ranked-emblem/emblem-{tier}.png" (the old path here) is a 2560x1440
+// splash background with the crest as a small centered glyph — scaling
+// that down to icon size makes it look tiny even with object-fit: contain,
+// since almost the whole canvas is transparent padding. "ranked-mini-crests"
+// is CommunityDragon's actual tightly-cropped icon set (verified: 80x80 for
+// the PNGs, 20x20 viewBox for the SVGs) — .svg is used here since it's the
+// one format present for every tier, including Emerald (which has no .png
+// in that directory).
 export function rankEmblemUrl(tier: string): string {
-  return `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/ranked-emblem/emblem-${tier.toLowerCase()}.png`;
+  return `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/ranked-mini-crests/${tier.toLowerCase()}.svg`;
 }
