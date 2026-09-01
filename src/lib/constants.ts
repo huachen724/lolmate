@@ -13,3 +13,11 @@ export const REVIEW_ELIGIBILITY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 // (Google/Yelp-style) — long enough for real detail, short enough to stay
 // skimmable. Easy to adjust.
 export const REVIEW_BODY_MAX_LENGTH = 2000;
+
+// Render's free tier spins the backend down after inactivity, so the first
+// /api/status check after a quiet period can fail or hang while it cold-
+// starts. SignInModal polls at this interval until it succeeds or this
+// total budget elapses — 60s comfortably covers a Render free-tier cold
+// start (typically well under 50s).
+export const SERVER_WAKE_POLL_INTERVAL_MS = 3 * 1000;
+export const SERVER_WAKE_TIMEOUT_MS = 60 * 1000;

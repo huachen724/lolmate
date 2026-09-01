@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { REVIEW_CATEGORIES } from "../../types";
-import type { Review, ReviewHistoryEntry, VoteValue } from "../../types";
+import type { Review, ReviewHistoryEntry, RiotId, VoteValue } from "../../types";
 import { useSession } from "../../hooks/useSession";
 import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
 import { deleteReview, fetchReviewHistory, voteOnReview } from "../../lib/api";
@@ -35,9 +36,14 @@ interface ReviewCardProps {
   review: Review;
   onDeleted?: (reviewId: string) => void;
   onEdit?: (review: Review) => void;
+  // Set on the dashboard's "My reviews" section, where every card is about
+  // a different target but always written by the same person (you) —
+  // showing the target's name is more useful there than the reviewer's
+  // name (which would just say "you" on every card).
+  targetRiotId?: RiotId | null;
 }
 
-export function ReviewCard({ review, onDeleted, onEdit }: ReviewCardProps) {
+export function ReviewCard({ review, onDeleted, onEdit, targetRiotId }: ReviewCardProps) {
   const session = useSession();
   const [upvotes, setUpvotes] = useState(review.upvotes);
   const [downvotes, setDownvotes] = useState(review.downvotes);
@@ -103,8 +109,24 @@ export function ReviewCard({ review, onDeleted, onEdit }: ReviewCardProps) {
     <article className="review-card card">
       <header className="review-card-header">
         <div className="review-card-reviewer">
-          <span className="review-card-name">{name}</span>
-          {verified && <VerifiedBadge />}
+          {targetRiotId !== undefined ? (
+            targetRiotId ? (
+              <Link
+                className="review-card-name"
+                to={`/profile/${encodeURIComponent(targetRiotId.gameName)}/${encodeURIComponent(targetRiotId.tagLine)}`}
+              >
+                Review of {targetRiotId.gameName}
+                <span className="faint">#{targetRiotId.tagLine}</span>
+              </Link>
+            ) : (
+              <span className="review-card-name faint">Review of an unknown player</span>
+            )
+          ) : (
+            <>
+              <span className="review-card-name">{name}</span>
+              {verified && <VerifiedBadge />}
+            </>
+          )}
           <span className="tag" title={modeBreakdownTitle(review.sharedGamesByMode)}>
             {review.sharedGamesWithTarget} games together
           </span>

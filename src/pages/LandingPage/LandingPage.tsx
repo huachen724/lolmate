@@ -58,7 +58,7 @@ export function LandingPage() {
         <div className="card landing-feature">
           <h3>Real teammate reviews</h3>
           <p className="muted">
-            See map awareness, mechanics, teamwork, comms, and sportsmanship ratings left by
+            See micro, macro, pinging, aggression, tilt-resistance, and team-play ratings left by
             people who've actually played with them.
           </p>
         </div>

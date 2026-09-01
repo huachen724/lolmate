@@ -4,6 +4,7 @@ import { LandingPage } from "./pages/LandingPage/LandingPage";
 import { DashboardPage } from "./pages/DashboardPage/DashboardPage";
 import { PlayerProfilePage } from "./pages/PlayerProfilePage/PlayerProfilePage";
 import { LiveMatchPage } from "./pages/LiveMatchPage/LiveMatchPage";
+import { BulkReviewPage } from "./pages/BulkReviewPage/BulkReviewPage";
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/profile/:gameName/:tagLine" element={<PlayerProfilePage />} />
         <Route path="/live/:gameName/:tagLine" element={<LiveMatchPage />} />
+        <Route path="/review/match/:matchId" element={<BulkReviewPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

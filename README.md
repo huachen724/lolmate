@@ -6,9 +6,9 @@ RateMyProfessor, but for your League of Legends teammates.
 
 Search any Riot ID to see their real rank, win rate, top champions, and match
 history, then read (or leave) reviews from people who've actually played with
-them — map awareness, mechanical skill, teamwork, communication, and
-sportsmanship. Reviews also surface live, right inside your current game, so
-you know who you're playing with before the match even ends.
+them — micro, macro, pinging, aggression, tilt-resistance, and team play.
+Reviews also surface live, right inside your current game, so you know who
+you're playing with before the match even ends.
 
 ## Features
 
@@ -23,11 +23,18 @@ you know who you're playing with before the match even ends.
   enabled show as anonymized "Hidden" rows instead of a real identity,
   matching what spectator-v5 itself returns for them.
 - **Peer reviews** — a written comment (up to 2000 characters) plus optional
-  1-5 star ratings across 5 axes (map awareness, mechanical skill, teamwork,
-  communication, sportsmanship) — rate whichever categories you want, or
-  none at all. Reviews can be upvoted/downvoted and are limited to one per
-  reviewer per target, and only allowed if you've played with that person
-  within the past week.
+  1-5 ratings across 6 axes (micro, macro, pinging rate, aggressive/passive,
+  tilt-resistance, plays with team) — rate whichever categories you want, or
+  none at all, as long as you leave either a comment or a rating. Reviews can
+  be upvoted/downvoted and are limited to one per reviewer per target, and
+  only allowed if you've played with that person within the past week.
+- **Bulk review** — after a match, review every ally and enemy from that
+  lobby in one pass at `/review/match/:matchId` (linked from the dashboard's
+  "Review this match" button) instead of opening the review form once per
+  player. Only players you actually rate or comment on get submitted.
+- **My reviews** — signed-in, Riot-verified users can see every review
+  they've written, newest first, with a name/date filter, from the
+  dashboard.
 - **Edit, delete, and view review history** — the reviewer who wrote a
   review (and only them) can edit or soft-delete it later; a deleted review
   disappears from the UI but the row is kept, and an edited review shows an

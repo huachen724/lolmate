@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Link } from "react-router-dom";
 import { useSession } from "../../hooks/useSession";
-import { fetchProfile, fetchReviewsBatch } from "../../lib/api";
+import { fetchMyReviews, fetchProfile, fetchReviewsBatch } from "../../lib/api";
 import { PROFILE_REFRESH_COOLDOWN_MS, readProfileCache, writeProfileCache } from "../../lib/profileCache";
+import { REVIEW_ELIGIBILITY_WINDOW_MS } from "../../lib/constants";
+import { timeAgo } from "../../lib/time";
 import { ChampionAvatar } from "../../components/ChampionAvatar/ChampionAvatar";
 import { RefreshStatus } from "../../components/RefreshStatus/RefreshStatus";
 import { ReviewForm } from "../../components/ReviewForm/ReviewForm";
+import { ReviewCard } from "../../components/ReviewCard/ReviewCard";
 import { RiotVerifyModal } from "../../components/RiotVerifyModal/RiotVerifyModal";
 import { ReconcileReviewsModal } from "../../components/ReconcileReviewsModal/ReconcileReviewsModal";
 import { LoadingState } from "../../components/Spinner/Spinner";
-import type { MatchParticipant, MatchSummary, Review, RiotId } from "../../types";
+import type { MatchParticipant, MatchSummary, MyReview, Review, RiotId } from "../../types";
 import "./DashboardPage.css";
 
 // Home base once signed in. Requires both a login (Discord/Google) *and* a
@@ -110,6 +113,41 @@ export function DashboardPage() {
     // match id it came from avoids re-fetching on every render.
   }, [riotPuuid, state.status === "ready" ? state.matches[0]?.matchId : null]);
 
+  const [myReviews, setMyReviews] = useState<
+    { status: "idle" | "loading" } | { status: "ready"; reviews: MyReview[] } | { status: "error"; message: string }
+  >({ status: "idle" });
+  const [myReviewsSearch, setMyReviewsSearch] = useState("");
+  const [myReviewsRange, setMyReviewsRange] = useState<"all" | "7d" | "30d">("all");
+
+  useEffect(() => {
+    if (!riotPuuid) return;
+    let cancelled = false;
+    setMyReviews({ status: "loading" });
+    fetchMyReviews()
+      .then((reviews) => {
+        if (!cancelled) setMyReviews({ status: "ready", reviews });
+      })
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setMyReviews({ status: "error", message: error instanceof Error ? error.message : "Couldn't load your reviews." });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [riotPuuid]);
+
+  const filteredMyReviews = useMemo(() => {
+    if (myReviews.status !== "ready") return [];
+    const search = myReviewsSearch.trim().toLowerCase();
+    const cutoff =
+      myReviewsRange === "7d" ? Date.now() - 7 * 24 * 60 * 60 * 1000 : myReviewsRange === "30d" ? Date.now() - 30 * 24 * 60 * 60 * 1000 : null;
+    return myReviews.reviews.filter((r) => {
+      if (cutoff !== null && r.createdAt < cutoff) return false;
+      if (search && !(r.targetRiotId?.gameName.toLowerCase().includes(search) ?? false)) return false;
+      return true;
+    });
+  }, [myReviews, myReviewsSearch, myReviewsRange]);
+
   if (session === undefined) {
     return <LoadingState message="Loading…" />;
   }
@@ -171,6 +209,16 @@ export function DashboardPage() {
 
   const self = latestMatch.participants.find((p) => p.puuid === riotPuuid);
 
+  // Every other participant shares this same match, so — unlike
+  // ReviewForm's per-target, multi-match eligibility calculation — there's
+  // just one eligibility check for the whole card: this specific match's
+  // age. Computed up front so the "Review" buttons can be disabled (with a
+  // tooltip explaining why) instead of only failing once the modal opens.
+  const isMatchReviewable = Date.now() - latestMatch.timestamp <= REVIEW_ELIGIBILITY_WINDOW_MS;
+  const matchDisabledReason = isMatchReviewable
+    ? undefined
+    : `This match was ${timeAgo(latestMatch.timestamp)} — reviews are only allowed within 7 days of playing together.`;
+
   return (
     <div className="dashboard">
       <h1>
@@ -180,7 +228,20 @@ export function DashboardPage() {
       <RefreshStatus fetchedAt={state.fetchedAt} cooldownMs={PROFILE_REFRESH_COOLDOWN_MS} onRefresh={forceRefresh} />
 
       <section className="card dashboard-recent-match">
-        <h2>Your most recent match</h2>
+        <div className="dashboard-recent-match-header">
+          <h2>Your most recent match</h2>
+          <Link
+            className={`btn btn-primary ${!isMatchReviewable ? "btn-disabled" : ""}`}
+            to={isMatchReviewable ? `/review/match/${encodeURIComponent(latestMatch.matchId)}` : "#"}
+            onClick={(e) => {
+              if (!isMatchReviewable) e.preventDefault();
+            }}
+            aria-disabled={!isMatchReviewable}
+            title={matchDisabledReason}
+          >
+            Review this match
+          </Link>
+        </div>
         <div className="dashboard-match-summary">
           <span className={self?.win ? "win" : "loss"}>{self?.win ? "Victory" : "Defeat"}</span>
           <span className="faint">{latestMatch.queueType}</span>
@@ -203,6 +264,7 @@ export function DashboardPage() {
                   key={p.puuid}
                   participant={p}
                   alreadyReviewed={(reviewsByTeammate[p.puuid] ?? []).some((r) => r.isMine)}
+                  disabledReason={matchDisabledReason}
                   onReview={() => setReviewTarget({ puuid: p.puuid, riotId: p.riotId })}
                 />
               ))}
@@ -220,10 +282,54 @@ export function DashboardPage() {
                   participant={p}
                   enemy
                   alreadyReviewed={(reviewsByTeammate[p.puuid] ?? []).some((r) => r.isMine)}
+                  disabledReason={matchDisabledReason}
                   onReview={() => setReviewTarget({ puuid: p.puuid, riotId: p.riotId })}
                 />
               ))}
             </div>
+          </>
+        )}
+      </section>
+
+      <section className="card dashboard-my-reviews">
+        <h2>My reviews</h2>
+        {myReviews.status === "loading" && <p className="muted">Loading your reviews…</p>}
+        {myReviews.status === "error" && <p className="muted">{myReviews.message}</p>}
+        {myReviews.status === "ready" && (
+          <>
+            <div className="dashboard-my-reviews-filters">
+              <input
+                type="search"
+                placeholder="Filter by player name…"
+                value={myReviewsSearch}
+                onChange={(e) => setMyReviewsSearch(e.target.value)}
+              />
+              <select value={myReviewsRange} onChange={(e) => setMyReviewsRange(e.target.value as "all" | "7d" | "30d")}>
+                <option value="all">All time</option>
+                <option value="7d">Past 7 days</option>
+                <option value="30d">Past 30 days</option>
+              </select>
+            </div>
+            {myReviews.reviews.length === 0 ? (
+              <p className="muted">You haven't written any reviews yet.</p>
+            ) : filteredMyReviews.length === 0 ? (
+              <p className="muted">No reviews match that filter.</p>
+            ) : (
+              <div className="dashboard-my-reviews-list">
+                {filteredMyReviews.map((review) => (
+                  <ReviewCard
+                    key={review.id}
+                    review={review}
+                    targetRiotId={review.targetRiotId}
+                    onDeleted={(id) =>
+                      setMyReviews((prev) =>
+                        prev.status === "ready" ? { status: "ready", reviews: prev.reviews.filter((r) => r.id !== id) } : prev,
+                      )
+                    }
+                  />
+                ))}
+              </div>
+            )}
           </>
         )}
       </section>
@@ -252,11 +358,13 @@ function ParticipantRow({
   participant,
   enemy = false,
   alreadyReviewed,
+  disabledReason,
   onReview,
 }: {
   participant: MatchParticipant;
   enemy?: boolean;
   alreadyReviewed: boolean;
+  disabledReason?: string;
   onReview: () => void;
 }) {
   return (
@@ -277,8 +385,13 @@ function ParticipantRow({
           )}
         </span>
       </div>
-      <button className="btn btn-primary" disabled={alreadyReviewed} onClick={onReview}>
-        {alreadyReviewed ? "Reviewed" : "Review"}
+      <button
+        className="btn btn-primary"
+        disabled={alreadyReviewed || !!disabledReason}
+        title={disabledReason}
+        onClick={onReview}
+      >
+        {alreadyReviewed ? "Reviewed" : disabledReason ? "Too old to review" : "Review"}
       </button>
     </div>
   );

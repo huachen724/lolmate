@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { API_BASE, fetchStatus } from "../../lib/api";
+import { SERVER_WAKE_POLL_INTERVAL_MS, SERVER_WAKE_TIMEOUT_MS } from "../../lib/constants";
+import { Spinner } from "../Spinner/Spinner";
 import "./SignInModal.css";
 
 interface SignInModalProps {
@@ -35,28 +37,56 @@ function GoogleIcon() {
 // the browser straight to /dashboard, where useSession() picks up the new
 // session on that fresh page load. So there's no onSignedIn callback here;
 // this modal just starts the redirect and the current page goes away.
+//
+// Render's free tier spins the backend down after inactivity, so the
+// first GET /api/status after a quiet period can fail or hang for tens of
+// seconds while it cold-starts. Rather than one fetch that gives up and
+// wrongly claims sign-in "isn't configured", this polls until it succeeds
+// or SERVER_WAKE_TIMEOUT_MS elapses, showing a real "waking up" state in
+// between.
+type Phase =
+  | { status: "checking" }
+  | { status: "ready"; discordAuth: boolean; googleAuth: boolean }
+  | { status: "timeout" };
+
 export function SignInModal({ onClose }: SignInModalProps) {
-  const [providers, setProviders] = useState<{ discordAuth: boolean; googleAuth: boolean } | null>(null);
+  const [phase, setPhase] = useState<Phase>({ status: "checking" });
+  // Bumped by "Try again" to restart the poll loop after a timeout.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    fetchStatus()
-      .then((status) => {
-        if (!cancelled) setProviders({ discordAuth: status.discordAuth, googleAuth: status.googleAuth });
-      })
-      .catch(() => {
-        if (!cancelled) setProviders({ discordAuth: false, googleAuth: false });
-      });
+    setPhase({ status: "checking" });
+    const startedAt = Date.now();
+
+    async function poll() {
+      while (!cancelled) {
+        try {
+          const status = await fetchStatus();
+          if (!cancelled) setPhase({ status: "ready", discordAuth: status.discordAuth, googleAuth: status.googleAuth });
+          return;
+        } catch {
+          if (cancelled) return;
+          if (Date.now() - startedAt >= SERVER_WAKE_TIMEOUT_MS) {
+            setPhase({ status: "timeout" });
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, SERVER_WAKE_POLL_INTERVAL_MS));
+        }
+      }
+    }
+
+    poll();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   function signInWith(provider: "discord" | "google") {
     window.location.href = `${API_BASE}/api/auth/${provider}`;
   }
 
-  const nothingConfigured = providers && !providers.discordAuth && !providers.googleAuth;
+  const nothingConfigured = phase.status === "ready" && !phase.discordAuth && !phase.googleAuth;
 
   return (
     <div className="sign-in-modal-overlay" onClick={onClose}>
@@ -67,22 +97,40 @@ export function SignInModal({ onClose }: SignInModalProps) {
           reviews!
         </p>
 
+        {phase.status === "checking" && (
+          <div className="sign-in-modal-waking">
+            <Spinner size={24} />
+            <p className="muted">Please wait a few seconds — the server is waking up.</p>
+          </div>
+        )}
+
+        {phase.status === "timeout" && (
+          <div className="sign-in-modal-waking">
+            <p className="sign-in-modal-error">The server didn't respond in time — it may still be starting up.</p>
+            <button type="button" className="btn btn-primary" onClick={() => setAttempt((n) => n + 1)}>
+              Try again
+            </button>
+          </div>
+        )}
+
         {nothingConfigured && <p className="sign-in-modal-error">Sign-in isn't configured yet.</p>}
 
-        <div className="sign-in-modal-providers">
-          {providers?.discordAuth && (
-            <button type="button" className="btn btn-primary sign-in-provider-btn" onClick={() => signInWith("discord")}>
-              <DiscordIcon />
-              Continue with Discord
-            </button>
-          )}
-          {providers?.googleAuth && (
-            <button type="button" className="btn btn-primary sign-in-provider-btn" onClick={() => signInWith("google")}>
-              <GoogleIcon />
-              Continue with Google
-            </button>
-          )}
-        </div>
+        {phase.status === "ready" && (
+          <div className="sign-in-modal-providers">
+            {phase.discordAuth && (
+              <button type="button" className="btn btn-primary sign-in-provider-btn" onClick={() => signInWith("discord")}>
+                <DiscordIcon />
+                Continue with Discord
+              </button>
+            )}
+            {phase.googleAuth && (
+              <button type="button" className="btn btn-primary sign-in-provider-btn" onClick={() => signInWith("google")}>
+                <GoogleIcon />
+                Continue with Google
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="sign-in-modal-actions">
           <button type="button" className="btn btn-ghost" onClick={onClose}>

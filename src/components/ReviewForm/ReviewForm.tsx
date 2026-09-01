@@ -7,6 +7,7 @@ import { countSharedGames, countSharedGamesByMode, mostRecentSharedGameTimestamp
 import { getOrCreateUnverifiedReviewerId } from "../../lib/session";
 import { timeAgo } from "../../lib/time";
 import { RatingStars } from "../RatingStars/RatingStars";
+import { RatingSlider } from "../RatingSlider/RatingSlider";
 import { Spinner } from "../Spinner/Spinner";
 import "./ReviewForm.css";
 
@@ -41,11 +42,12 @@ interface ReviewFormProps {
 type DraftScores = Record<ReviewCategory, number>;
 
 const emptyScores: DraftScores = {
-  mapAwareness: 0,
-  mechanicalSkill: 0,
-  teamwork: 0,
-  communication: 0,
-  sportsmanship: 0,
+  micro: 0,
+  macro: 0,
+  pingingRate: 0,
+  aggressivePassive: 0,
+  tiltProne: 0,
+  teamPlayer: 0,
 };
 
 export function ReviewForm({
@@ -163,10 +165,14 @@ export function ReviewForm({
     : null;
 
   const isEligible = lastSharedGameAt !== null && Date.now() - lastSharedGameAt <= REVIEW_ELIGIBILITY_WINDOW_MS;
+  // A review needs either a written comment or at least one rated category
+  // — both are individually optional, but not both at once (see server.js's
+  // POST/PUT /api/reviews, which enforces the same rule).
+  const hasContent = body.trim().length > 0 || REVIEW_CATEGORIES.some((c) => scores[c.key] > 0);
   const canSubmit =
     (isEditing || !alreadyReviewed) &&
     isEligible &&
-    body.trim().length > 0 &&
+    hasContent &&
     submitState.status !== "submitting" &&
     (verifiedIdentity ? true : displayName.trim().length >= 2 && reviewerPuuid !== null);
 
@@ -366,17 +372,27 @@ export function ReviewForm({
                     <div className="review-form-score-label">{category.label}</div>
                     <div className="faint review-form-score-hint">{category.hint}</div>
                   </div>
-                  <RatingStars
-                    value={scores[category.key]}
-                    onChange={(v) => setScores((s) => ({ ...s, [category.key]: v === s[category.key] ? 0 : v }))}
-                    label={category.label}
-                  />
+                  {category.inputType === "stars" ? (
+                    <RatingStars
+                      value={scores[category.key]}
+                      onChange={(v) => setScores((s) => ({ ...s, [category.key]: v === s[category.key] ? 0 : v }))}
+                      label={category.label}
+                    />
+                  ) : (
+                    <RatingSlider
+                      value={scores[category.key]}
+                      onChange={(v) => setScores((s) => ({ ...s, [category.key]: v }))}
+                      lowLabel={category.lowLabel}
+                      highLabel={category.highLabel}
+                      label={category.label}
+                    />
+                  )}
                 </div>
               ))}
             </div>
 
             <label className="review-form-field">
-              Your review
+              Your review (optional if you've rated at least one category above)
               <textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value.slice(0, REVIEW_BODY_MAX_LENGTH))}

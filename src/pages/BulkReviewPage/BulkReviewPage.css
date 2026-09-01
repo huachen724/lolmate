@@ -1,0 +1,76 @@
+.bulk-review-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.bulk-review-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bulk-review-header h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.bulk-review-group-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.bulk-review-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bulk-review-row {
+  padding: 0;
+  overflow: hidden;
+}
+
+.bulk-review-row-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.bulk-review-row-header:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.bulk-review-row-status {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bulk-review-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 14px 16px;
+}
+
+.bulk-review-submit-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}

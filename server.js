@@ -557,11 +557,12 @@ app.get("/api/verify/unverified-reviews", requireAuth, async (req, res) => {
           displayName: row.reviewer_display_name,
           body: row.body,
           scores: {
-            mapAwareness: row.map_awareness,
-            mechanicalSkill: row.mechanical_skill,
-            teamwork: row.teamwork,
-            communication: row.communication,
-            sportsmanship: row.sportsmanship,
+            micro: row.micro,
+            macro: row.macro,
+            pingingRate: row.pinging_rate,
+            aggressivePassive: row.aggressive_passive,
+            tiltProne: row.tilt_prone,
+            teamPlayer: row.team_player,
           },
           sharedGamesWithTarget: row.shared_games_with_target,
           createdAt: new Date(row.created_at).getTime(),
@@ -653,6 +654,17 @@ app.post("/api/verify/reconcile-reviews", requireAuth, async (req, res) => {
 // their per-browser unverified cookie id) — used to compute `isMine` and
 // `myVote` per row without ever exposing *other* people's reviewer_key or
 // who voted on what. See db.js for the schema/dedup rationale.
+
+// The 6 rating categories (see src/types/index.ts's REVIEW_CATEGORIES,
+// which this mirrors) — kept as a plain list here rather than importing
+// the frontend module, since server.js only needs the keys to check
+// whether a submitted `scores` object rated anything at all.
+const SCORE_KEYS = ["micro", "macro", "pingingRate", "aggressivePassive", "tiltProne", "teamPlayer"];
+
+function hasAnyScore(scores) {
+  return SCORE_KEYS.some((key) => scores && scores[key] != null);
+}
+
 function rowToReview(row) {
   return {
     id: row.id,
@@ -667,11 +679,12 @@ function rowToReview(row) {
           }
         : { kind: "unverified", unverifiedId: row.reviewer_key, displayName: row.reviewer_display_name },
     scores: {
-      mapAwareness: row.map_awareness,
-      mechanicalSkill: row.mechanical_skill,
-      teamwork: row.teamwork,
-      communication: row.communication,
-      sportsmanship: row.sportsmanship,
+      micro: row.micro,
+      macro: row.macro,
+      pingingRate: row.pinging_rate,
+      aggressivePassive: row.aggressive_passive,
+      tiltProne: row.tilt_prone,
+      teamPlayer: row.team_player,
     },
     body: row.body,
     createdAt: new Date(row.created_at).getTime(),
@@ -693,11 +706,12 @@ function historyRowToEntry(row) {
         ? { kind: "verified", riotId: { gameName: row.reviewer_game_name, tagLine: row.reviewer_tag_line } }
         : { kind: "unverified", displayName: row.reviewer_display_name },
     scores: {
-      mapAwareness: row.map_awareness,
-      mechanicalSkill: row.mechanical_skill,
-      teamwork: row.teamwork,
-      communication: row.communication,
-      sportsmanship: row.sportsmanship,
+      micro: row.micro,
+      macro: row.macro,
+      pingingRate: row.pinging_rate,
+      aggressivePassive: row.aggressive_passive,
+      tiltProne: row.tilt_prone,
+      teamPlayer: row.team_player,
     },
     body: row.body,
     sharedGamesWithTarget: row.shared_games_with_target,
@@ -713,9 +727,9 @@ async function archiveReviewVersion(client, reviewRow) {
   await client.query(
     `INSERT INTO review_edit_history (
        id, review_id, reviewer_kind, reviewer_key, reviewer_game_name, reviewer_tag_line,
-       reviewer_display_name, body, map_awareness, mechanical_skill, teamwork,
-       communication, sportsmanship, shared_games_with_target, shared_games_by_mode
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+       reviewer_display_name, body, micro, macro, pinging_rate,
+       aggressive_passive, tilt_prone, team_player, shared_games_with_target, shared_games_by_mode
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
     [
       `hist-${crypto.randomUUID()}`,
       reviewRow.id,
@@ -725,11 +739,12 @@ async function archiveReviewVersion(client, reviewRow) {
       reviewRow.reviewer_tag_line,
       reviewRow.reviewer_display_name,
       reviewRow.body,
-      reviewRow.map_awareness,
-      reviewRow.mechanical_skill,
-      reviewRow.teamwork,
-      reviewRow.communication,
-      reviewRow.sportsmanship,
+      reviewRow.micro,
+      reviewRow.macro,
+      reviewRow.pinging_rate,
+      reviewRow.aggressive_passive,
+      reviewRow.tilt_prone,
+      reviewRow.team_player,
       reviewRow.shared_games_with_target,
       JSON.stringify(reviewRow.shared_games_by_mode ?? {}),
     ],
@@ -749,6 +764,28 @@ async function queryReviews(targetPuuids, voterKey) {
      GROUP BY r.id
      ORDER BY r.created_at DESC`,
     [targetPuuids, voterKey ?? ""],
+  );
+  return rows;
+}
+
+// Same shape as queryReviews, but for "reviews I wrote" (GET
+// /api/reviews/mine) rather than "reviews of this target" — filtered by
+// reviewer_key instead of target_puuid. voter_key/my_vote here is always
+// about this same reviewer's own vote on their own review (a real, if
+// unusual, possibility), same computation as everywhere else.
+async function queryReviewsByReviewer(reviewerKey) {
+  const { rows } = await pool.query(
+    `SELECT r.*,
+       COALESCE(SUM(CASE WHEN v.value = 1 THEN 1 ELSE 0 END), 0)::int AS upvotes,
+       COALESCE(SUM(CASE WHEN v.value = -1 THEN 1 ELSE 0 END), 0)::int AS downvotes,
+       MAX(CASE WHEN v.voter_key = $1 THEN v.value END) AS my_vote,
+       true AS is_mine
+     FROM reviews r
+     LEFT JOIN review_votes v ON v.review_id = r.id
+     WHERE r.reviewer_key = $1 AND r.deleted_at IS NULL
+     GROUP BY r.id
+     ORDER BY r.created_at DESC`,
+    [reviewerKey],
   );
   return rows;
 }
@@ -909,6 +946,36 @@ app.get("/api/reviews/batch", async (req, res) => {
 });
 
 // List reviews for one target, e.g. the profile page.
+// All reviews the signed-in, Riot-verified user has written, newest first
+// — powers the dashboard's "My reviews" section. Registered before
+// /api/reviews/:targetPuuid for the same reason /api/reviews/batch is
+// (Express would otherwise treat "mine" as a targetPuuid value).
+app.get("/api/reviews/mine", async (req, res) => {
+  const userId = getUserIdFromRequest(req);
+  const user = userId ? await findUserById(userId) : null;
+  if (!user || !user.riot_puuid) {
+    return res.status(403).json({ error: "Sign in and verify your Riot account to view your reviews." });
+  }
+
+  try {
+    const rows = await queryReviewsByReviewer(user.riot_puuid);
+    const uniqueTargets = [...new Set(rows.map((row) => row.target_puuid))];
+    const accounts = await Promise.all(uniqueTargets.map((puuid) => getAccountByPuuid(puuid).catch(() => null)));
+    const targetRiotIdByPuuid = new Map(
+      uniqueTargets.map((puuid, i) => [puuid, accounts[i] ? { gameName: accounts[i].gameName, tagLine: accounts[i].tagLine } : null]),
+    );
+    res.json(
+      rows.map((row) => ({
+        ...rowToReview(row),
+        targetRiotId: targetRiotIdByPuuid.get(row.target_puuid) ?? null,
+      })),
+    );
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to load your reviews." });
+  }
+});
+
 app.get("/api/reviews/:targetPuuid", async (req, res) => {
   try {
     const voterKey = await resolveViewerKey(req, req.query.voterKey);
@@ -943,11 +1010,15 @@ app.post("/api/reviews", async (req, res) => {
     sharedGamesByMode,
   } = req.body || {};
 
-  // Star ratings are optional (see db.js) — only the written body is
-  // required. `scores` itself may be omitted entirely; any category left
-  // out is stored as NULL.
-  if (!id || !targetPuuid || !reviewerKind || !body || !body.trim()) {
-    return res.status(400).json({ error: "Missing required review fields." });
+  const s = scores || {};
+  const bodyText = typeof body === "string" && body.trim() ? body.trim() : null;
+
+  // A review needs either a written comment or at least one rated category
+  // — both are individually optional (see db.js), but not both at once.
+  // `scores` itself may be omitted entirely; any category left out (or the
+  // whole object) is stored as NULL.
+  if (!id || !targetPuuid || !reviewerKind || (!bodyText && !hasAnyScore(s))) {
+    return res.status(400).json({ error: "Review needs a comment or at least one rated category." });
   }
 
   // The "verified" identity is never taken from the client — it's derived
@@ -980,8 +1051,6 @@ app.post("/api/reviews", async (req, res) => {
   } else {
     return res.status(400).json({ error: "Invalid reviewerKind." });
   }
-
-  const s = scores || {};
 
   try {
     // Own prior review of this target already exists (whether from before
@@ -1018,21 +1087,22 @@ app.post("/api/reviews", async (req, res) => {
             `UPDATE reviews SET
                reviewer_kind = 'verified', reviewer_key = $1, reviewer_game_name = $2, reviewer_tag_line = $3,
                reviewer_anonymous = $4, reviewer_display_name = NULL, reviewer_claimed_puuid = NULL,
-               body = $5, map_awareness = $6, mechanical_skill = $7, teamwork = $8, communication = $9,
-               sportsmanship = $10, shared_games_with_target = $11, shared_games_by_mode = $12, edited_at = now()
-             WHERE id = $13
+               body = $5, micro = $6, macro = $7, pinging_rate = $8, aggressive_passive = $9,
+               tilt_prone = $10, team_player = $11, shared_games_with_target = $12, shared_games_by_mode = $13, edited_at = now()
+             WHERE id = $14
              RETURNING *`,
             [
               reviewerKey,
               reviewerGameName,
               reviewerTagLine,
               anonymous,
-              body,
-              s.mapAwareness ?? null,
-              s.mechanicalSkill ?? null,
-              s.teamwork ?? null,
-              s.communication ?? null,
-              s.sportsmanship ?? null,
+              bodyText,
+              s.micro ?? null,
+              s.macro ?? null,
+              s.pingingRate ?? null,
+              s.aggressivePassive ?? null,
+              s.tiltProne ?? null,
+              s.teamPlayer ?? null,
               sharedGamesWithTarget ?? 0,
               JSON.stringify(sharedGamesByMode ?? {}),
               claimed.id,
@@ -1066,9 +1136,9 @@ app.post("/api/reviews", async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO reviews (
          id, target_puuid, reviewer_key, reviewer_kind, reviewer_game_name, reviewer_tag_line,
-         reviewer_anonymous, reviewer_display_name, reviewer_claimed_puuid, map_awareness, mechanical_skill,
-         teamwork, communication, sportsmanship, body, shared_games_with_target, shared_games_by_mode
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         reviewer_anonymous, reviewer_display_name, reviewer_claimed_puuid, micro, macro,
+         pinging_rate, aggressive_passive, tilt_prone, team_player, body, shared_games_with_target, shared_games_by_mode
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING *`,
       [
         id,
@@ -1080,12 +1150,13 @@ app.post("/api/reviews", async (req, res) => {
         anonymous,
         reviewerKind === "unverified" ? (reviewerDisplayName ?? null) : null,
         claimedPuuid,
-        s.mapAwareness ?? null,
-        s.mechanicalSkill ?? null,
-        s.teamwork ?? null,
-        s.communication ?? null,
-        s.sportsmanship ?? null,
-        body,
+        s.micro ?? null,
+        s.macro ?? null,
+        s.pingingRate ?? null,
+        s.aggressivePassive ?? null,
+        s.tiltProne ?? null,
+        s.teamPlayer ?? null,
+        bodyText,
         sharedGamesWithTarget ?? 0,
         JSON.stringify(sharedGamesByMode ?? {}),
       ],
@@ -1112,14 +1183,14 @@ app.post("/api/reviews", async (req, res) => {
 // "view previous version" has something to show.
 app.put("/api/reviews/:id", async (req, res) => {
   const { scores, body, sharedGamesWithTarget, sharedGamesByMode, reviewerAnonymous } = req.body || {};
-  if (!body || !body.trim()) {
-    return res.status(400).json({ error: "Review body is required." });
+  const s = scores || {};
+  const bodyText = typeof body === "string" && body.trim() ? body.trim() : null;
+  if (!bodyText && !hasAnyScore(s)) {
+    return res.status(400).json({ error: "Review needs a comment or at least one rated category." });
   }
 
   const voterKey = await resolveViewerKey(req, req.body?.reviewerKey);
   if (!voterKey) return res.status(400).json({ error: "Missing reviewerKey." });
-
-  const s = scores || {};
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1138,20 +1209,21 @@ app.put("/api/reviews/:id", async (req, res) => {
 
     const { rows } = await client.query(
       `UPDATE reviews SET
-         body = $1, map_awareness = $2, mechanical_skill = $3, teamwork = $4,
-         communication = $5, sportsmanship = $6, shared_games_with_target = $7,
-         shared_games_by_mode = $8,
-         reviewer_anonymous = CASE WHEN reviewer_kind = 'verified' THEN $9 ELSE reviewer_anonymous END,
+         body = $1, micro = $2, macro = $3, pinging_rate = $4,
+         aggressive_passive = $5, tilt_prone = $6, team_player = $7, shared_games_with_target = $8,
+         shared_games_by_mode = $9,
+         reviewer_anonymous = CASE WHEN reviewer_kind = 'verified' THEN $10 ELSE reviewer_anonymous END,
          edited_at = now()
-       WHERE id = $10
+       WHERE id = $11
        RETURNING *`,
       [
-        body,
-        s.mapAwareness ?? null,
-        s.mechanicalSkill ?? null,
-        s.teamwork ?? null,
-        s.communication ?? null,
-        s.sportsmanship ?? null,
+        bodyText,
+        s.micro ?? null,
+        s.macro ?? null,
+        s.pingingRate ?? null,
+        s.aggressivePassive ?? null,
+        s.tiltProne ?? null,
+        s.teamPlayer ?? null,
         sharedGamesWithTarget ?? existing.shared_games_with_target,
         JSON.stringify(sharedGamesByMode ?? existing.shared_games_by_mode ?? {}),
         !!reviewerAnonymous,

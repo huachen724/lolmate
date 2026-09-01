@@ -100,20 +100,50 @@ export interface LiveGame {
 // --- Reviews -----------------------------------------------------------
 
 // One axis a reviewer rates. Kept as a fixed list (rather than free-form
-// tags) so aggregate scoring stays comparable across reviews.
+// tags) so aggregate scoring stays comparable across reviews. "stars"
+// categories are a plain 1-5 quality score (RatingStars); "slider"
+// categories are a 1-5 position between two named poles (RatingSlider) —
+// same underlying value range either way, see ReviewScores below.
 export type ReviewCategory =
-  | "mapAwareness"
-  | "mechanicalSkill"
-  | "teamwork"
-  | "communication"
-  | "sportsmanship";
+  | "micro"
+  | "macro"
+  | "pingingRate"
+  | "aggressivePassive"
+  | "tiltProne"
+  | "teamPlayer";
 
-export const REVIEW_CATEGORIES: { key: ReviewCategory; label: string; hint: string }[] = [
-  { key: "mapAwareness", label: "Map Awareness", hint: "Wards, rotations, tracking missing enemies" },
-  { key: "mechanicalSkill", label: "Mechanics", hint: "Combos, kiting, dodging skillshots" },
-  { key: "teamwork", label: "Teamwork", hint: "Grouping, objective focus, peeling for allies" },
-  { key: "communication", label: "Communication", hint: "Calling targets, useful pings/chat" },
-  { key: "sportsmanship", label: "Sportsmanship", hint: "Tilt-resistance, no int-feeding or flame" },
+export type ReviewCategoryMeta =
+  | { key: ReviewCategory; label: string; hint: string; inputType: "stars" }
+  | { key: ReviewCategory; label: string; hint: string; inputType: "slider"; lowLabel: string; highLabel: string };
+
+export const REVIEW_CATEGORIES: ReviewCategoryMeta[] = [
+  { key: "micro", label: "Micro (Mechanics)", hint: "Combos, kiting, dodging skillshots", inputType: "stars" },
+  { key: "macro", label: "Macro", hint: "Rotations, objective timing, wave management", inputType: "stars" },
+  { key: "pingingRate", label: "Pinging", hint: "Useful, well-timed pings and calls", inputType: "stars" },
+  {
+    key: "aggressivePassive",
+    label: "Aggressive / Passive",
+    hint: "Where they land on the aggression spectrum",
+    inputType: "slider",
+    lowLabel: "Passive",
+    highLabel: "Aggressive",
+  },
+  {
+    key: "tiltProne",
+    label: "Tilt-Resistance",
+    hint: "How well they handle a game going badly",
+    inputType: "slider",
+    lowLabel: "Tilts easily",
+    highLabel: "Even-keeled",
+  },
+  {
+    key: "teamPlayer",
+    label: "Plays With Team",
+    hint: "Grouping, peeling, playing for the team vs. solo",
+    inputType: "slider",
+    lowLabel: "Solo-focused",
+    highLabel: "Team-focused",
+  },
 ];
 
 // Each category is 1-5, or null if the reviewer chose not to rate it —
@@ -195,6 +225,15 @@ export interface ReviewSummary {
   averageScores: Record<ReviewCategory, number | null>;
   overallAverage: number | null;
   reviewCount: number;
+}
+
+// A review as returned by GET /api/reviews/mine — same shape as Review,
+// plus who it's about (Review itself only carries the raw targetPuuid,
+// since normally the caller already knows the target from context).
+// targetRiotId can be null if that account's Riot ID couldn't be resolved
+// (e.g. a transient Riot API failure), same as UnverifiedReviewCandidate.
+export interface MyReview extends Review {
+  targetRiotId: RiotId | null;
 }
 
 export type VoteValue = 1 | -1;

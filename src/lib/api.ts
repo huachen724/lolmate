@@ -8,6 +8,7 @@ import type {
   AuthUser,
   LiveGame,
   MatchSummary,
+  MyReview,
   Review,
   ReviewHistoryEntry,
   ReviewScores,
@@ -136,6 +137,13 @@ export function updateReview(reviewId: string, payload: ReviewUpdatePayload): Pr
 
 export function fetchReviewHistory(reviewId: string): Promise<ReviewHistoryEntry[]> {
   return getJson(`/api/reviews/${encodeURIComponent(reviewId)}/history`);
+}
+
+// All reviews the signed-in, Riot-verified user has written — powers the
+// dashboard's "My reviews" section. Auth is via the session cookie
+// (credentials: "include" on every getJson call), same as fetchMe.
+export function fetchMyReviews(): Promise<MyReview[]> {
+  return getJson("/api/reviews/mine");
 }
 
 export function voteOnReview(

@@ -46,12 +46,17 @@ CREATE TABLE IF NOT EXISTS reviews (
   -- account holder can reclaim/override a review impersonating them (see
   -- POST /api/reviews's override path). NULL for verified reviews.
   reviewer_claimed_puuid text,
-  map_awareness smallint CHECK (map_awareness BETWEEN 1 AND 5),
-  mechanical_skill smallint CHECK (mechanical_skill BETWEEN 1 AND 5),
-  teamwork smallint CHECK (teamwork BETWEEN 1 AND 5),
-  communication smallint CHECK (communication BETWEEN 1 AND 5),
-  sportsmanship smallint CHECK (sportsmanship BETWEEN 1 AND 5),
-  body text NOT NULL,
+  micro smallint CHECK (micro BETWEEN 1 AND 5),
+  macro smallint CHECK (macro BETWEEN 1 AND 5),
+  pinging_rate smallint CHECK (pinging_rate BETWEEN 1 AND 5),
+  aggressive_passive smallint CHECK (aggressive_passive BETWEEN 1 AND 5),
+  tilt_prone smallint CHECK (tilt_prone BETWEEN 1 AND 5),
+  team_player smallint CHECK (team_player BETWEEN 1 AND 5),
+  -- body is nullable: a review only needs *either* a written comment or at
+  -- least one category rated (enforced in server.js, not here — a
+  -- cross-column CHECK would need editing every time the category list
+  -- changes, see POST/PUT /api/reviews).
+  body text,
   shared_games_with_target int NOT NULL DEFAULT 0,
   -- Per-mode breakdown of shared_games_with_target, e.g.
   -- {"Ranked Solo/Duo": 2, "ARAM": 1} — snapshotted at submission time
@@ -78,12 +83,13 @@ CREATE TABLE IF NOT EXISTS review_edit_history (
   reviewer_game_name text,
   reviewer_tag_line text,
   reviewer_display_name text,
-  body text NOT NULL,
-  map_awareness smallint,
-  mechanical_skill smallint,
-  teamwork smallint,
-  communication smallint,
-  sportsmanship smallint,
+  body text,
+  micro smallint,
+  macro smallint,
+  pinging_rate smallint,
+  aggressive_passive smallint,
+  tilt_prone smallint,
+  team_player smallint,
   shared_games_with_target int NOT NULL,
   shared_games_by_mode jsonb NOT NULL DEFAULT '{}'::jsonb,
   archived_at timestamptz NOT NULL DEFAULT now()
@@ -140,11 +146,6 @@ CREATE TABLE IF NOT EXISTS icon_verification_challenges (
 // line with the schema above; DROP NOT NULL is itself a no-op if a column
 // is already nullable, so this is safe to run on every boot.
 const MIGRATIONS = `
-ALTER TABLE reviews ALTER COLUMN map_awareness DROP NOT NULL;
-ALTER TABLE reviews ALTER COLUMN mechanical_skill DROP NOT NULL;
-ALTER TABLE reviews ALTER COLUMN teamwork DROP NOT NULL;
-ALTER TABLE reviews ALTER COLUMN communication DROP NOT NULL;
-ALTER TABLE reviews ALTER COLUMN sportsmanship DROP NOT NULL;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS edited_at timestamptz;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS reviewer_claimed_puuid text;
@@ -168,6 +169,39 @@ CREATE UNIQUE INDEX IF NOT EXISTS reviews_unverified_claimed_puuid_idx
 -- added via this migration.
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS shared_games_by_mode jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE review_edit_history ADD COLUMN IF NOT EXISTS shared_games_by_mode jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- Category overhaul: the original 5 rating categories (map awareness,
+-- mechanics, teamwork, communication, sportsmanship) are replaced with 6
+-- new ones (micro, macro, pinging rate, aggressive/passive, tilt
+-- resistance, team player). Old scores are dropped along with the columns
+-- — reviews' written bodies/authorship are untouched. body also drops
+-- NOT NULL here: a review now only needs either a comment or at least one
+-- rated category (see POST/PUT /api/reviews in server.js).
+ALTER TABLE reviews DROP COLUMN IF EXISTS map_awareness;
+ALTER TABLE reviews DROP COLUMN IF EXISTS mechanical_skill;
+ALTER TABLE reviews DROP COLUMN IF EXISTS teamwork;
+ALTER TABLE reviews DROP COLUMN IF EXISTS communication;
+ALTER TABLE reviews DROP COLUMN IF EXISTS sportsmanship;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS micro smallint CHECK (micro BETWEEN 1 AND 5);
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS macro smallint CHECK (macro BETWEEN 1 AND 5);
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS pinging_rate smallint CHECK (pinging_rate BETWEEN 1 AND 5);
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS aggressive_passive smallint CHECK (aggressive_passive BETWEEN 1 AND 5);
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS tilt_prone smallint CHECK (tilt_prone BETWEEN 1 AND 5);
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS team_player smallint CHECK (team_player BETWEEN 1 AND 5);
+ALTER TABLE reviews ALTER COLUMN body DROP NOT NULL;
+
+ALTER TABLE review_edit_history DROP COLUMN IF EXISTS map_awareness;
+ALTER TABLE review_edit_history DROP COLUMN IF EXISTS mechanical_skill;
+ALTER TABLE review_edit_history DROP COLUMN IF EXISTS teamwork;
+ALTER TABLE review_edit_history DROP COLUMN IF EXISTS communication;
+ALTER TABLE review_edit_history DROP COLUMN IF EXISTS sportsmanship;
+ALTER TABLE review_edit_history ADD COLUMN IF NOT EXISTS micro smallint;
+ALTER TABLE review_edit_history ADD COLUMN IF NOT EXISTS macro smallint;
+ALTER TABLE review_edit_history ADD COLUMN IF NOT EXISTS pinging_rate smallint;
+ALTER TABLE review_edit_history ADD COLUMN IF NOT EXISTS aggressive_passive smallint;
+ALTER TABLE review_edit_history ADD COLUMN IF NOT EXISTS tilt_prone smallint;
+ALTER TABLE review_edit_history ADD COLUMN IF NOT EXISTS team_player smallint;
+ALTER TABLE review_edit_history ALTER COLUMN body DROP NOT NULL;
 `;
 
 export async function runMigrations() {

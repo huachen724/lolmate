@@ -205,6 +205,16 @@ button {
   cursor: not-allowed;
 }
 
+/* `disabled` has no effect on an <a>/Link rendered as a .btn — this is
+   the equivalent for those (paired with aria-disabled + a click handler
+   that preventDefaults the navigation). Deliberately keeps pointer-events
+   enabled (unlike a typical disabled-link pattern) so the title attribute
+   still shows a tooltip on hover explaining why. */
+.btn-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
